@@ -1,0 +1,29 @@
+# Cairox Indexer - Python Dependencies
+# ZK Integrity Proofs for Sentiment Index
+
+# Web3/Starknet
+starknet-py>=0.20.0
+starkli>=0.2.0
+
+# HTTP requests and API clients
+requests>=2.31.0
+aiohttp>=3.9.0
+
+# Database
+# SQLite is included with Python standard library
+
+# Data processing
+numpy>=1.24.0
+pandas>=2.0.0
+
+# Cryptography and ZK proofs
+pycryptodome>=3.19.0
+# For future Groth16/PLONK support:
+# pip install py_ecc bn256
+
+# Utilities
+python-dotenv>=1.0.0
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
