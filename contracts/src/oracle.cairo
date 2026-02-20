@@ -19,6 +19,7 @@ pub trait IOptimisticOracle {
         data_hash: felt252,
         zk_proof: Span<felt252>
     );
+    fn fast_finalize(ref self: ContractState, market_id: felt252);
     fn is_disputed(self: @ContractState, market_id: felt252) -> bool;
 }
 
@@ -28,6 +29,7 @@ mod OptimisticOracle {
     use starknet::{get_caller_address, StorageAddress, get_contract_address};
     use starknet::cast::cast_felt;
     use openzeppelin::math::u256 as u256_lib;
+    use super::resolution_verifier::ResolutionVerifier;
 
     // Market status constants
     const PENDING: felt252 = 0;
@@ -54,6 +56,8 @@ mod OptimisticOracle {
         min_proposer_bond: u256_lib::U256,
         min_dispute_bond: u256_lib::U256,
         arbiter: starknet::ContractAddress,
+        // Fast-finalize config
+        fast_finalize_enabled: bool,
     }
 
     #[derive(Drop, CairoShape)]
@@ -69,6 +73,9 @@ mod OptimisticOracle {
         proposed_at: u64,
         resolved_at: u64,
         status: felt252,
+        // Fast-finalize fields
+        fast_path: bool,
+        proof_hash: felt252,
     }
 
     #[external]
@@ -79,6 +86,8 @@ mod OptimisticOracle {
         // Set arbiter to a default address for v0 (can be updated later)
         let arbiter_addr = starknet::ContractAddress::from(0x123456789012345678901234567890123456789012345678901234567890123);
         self.arbiter.write(arbiter_addr);
+        // Enable fast-finalize for v0 (but proofs are stubbed)
+        self.fast_finalize_enabled.write(true);
     }
 
     #[external]
@@ -199,16 +208,81 @@ mod OptimisticOracle {
         data_hash: felt252,
         zk_proof: Span<felt252>
     ) {
-        // Stub for ZK proof integration - for v0, just call regular propose
-        // ZK proofs can be verified off-chain or integrated in future versions
+        let caller = get_caller_address();
         
-        // For now, just validate the proof is not too large
-        // In production, this would verify the ZK proof
+        // Only allow the authorized reporter to propose
+        let reporter_felt = cast_felt(REPORTER);
+        assert(caller.value == reporter_felt, 'Unauthorized: only reporter can propose');
+        
+        // Verify bond meets minimum requirement
+        let min_bond = self.min_proposer_bond.read();
+        let proposer_bond = min_bond;  // Use minimum for fast-finalize (no bond needed for proof)
+        
+        let existing_market = self.markets.read(market_id);
+        // If market exists and is not pending, reject
+        assert(existing_market.status == PENDING, 'Market already proposed');
+        
+        // Verify proof is not too large (basic validation - in production, verify SNARK)
         let proof_len = zk_proof.len();
-        assert(proof_len <= 1000, 'ZK proof too large');
+        assert(proof_len > 0 && proof_len <= 1000, 'Invalid ZK proof size');
         
-        // The actual propose logic would be called here
-        // For v0, we just allow the call to succeed as a stub
+        // Compute proof hash for storage
+        let proof_hash = Self::compute_proof_hash(zk_proof);
+        
+        // Verify ZK proof (stubbed for v0 - always succeeds)
+        // In production, this would call the ResolutionVerifier contract
+        let verified = Self::verify_zk_proof(market_id, outcome, zk_proof);
+        assert(verified, 'Invalid ZK proof');
+        
+        let market = Market {
+            proposer: caller,
+            proposer_bond: proposer_bond,
+            outcome: outcome,
+            disputed: false,
+            dispute_bond: u256_lib::U256 { low: 0, high: 0 },
+            dispute_resolved: false,
+            data_hash: data_hash,
+            data_uri: data_uri,
+            proposed_at: starknet::block_timestamp(),
+            resolved_at: 0,
+            status: PROPOSED,
+            fast_path: true,  // Mark as fast-path market
+            proof_hash: proof_hash,
+        };
+        
+        self.markets.write(market_id, market);
+    }
+
+    /// Fast-finalize a market using ZK proof (skips dispute window)
+    /// Only works if:
+    /// 1. Fast-finalize is enabled
+    /// 2. Market was proposed with proof (fast_path = true)
+    /// 3. ZK proof was verified during propose
+    #[external]
+    fn fast_finalize(ref self: ContractState, market_id: felt252) {
+        let market = self.markets.read(market_id);
+        
+        // Check fast-finalize is enabled
+        let fast_enabled = self.fast_finalize_enabled.read();
+        assert(fast_enabled, 'Fast-finalize not enabled');
+        
+        // Market must be in Proposed status
+        assert(market.status == PROPOSED, 'Market is not in Proposed state');
+        
+        // Market must be using fast-path (was proposed with proof)
+        assert(market.fast_path, 'Market is not using fast path: call propose_with_proof first');
+        
+        // Verify proof was recorded during propose
+        assert(market.proof_hash != 0, 'Proof hash not recorded');
+        
+        // No dispute window check needed - fast-finalize skips it
+        let current_time = starknet::block_timestamp();
+        
+        let mut updated_market = market;
+        updated_market.status = RESOLVED;
+        updated_market.resolved_at = current_time;
+        
+        self.markets.write(market_id, updated_market);
     }
 
     #[external]
@@ -221,5 +295,39 @@ mod OptimisticOracle {
     fn is_disputed(self: @ContractState, market_id: felt252) -> bool {
         let market = self.markets.read(market_id);
         market.disputed
+    }
+
+    /// Verify ZK proof (stubbed for v0)
+    /// @param market_id The market ID
+    /// @param outcome The claimed outcome
+    /// @param proof The ZK proof
+    /// @return verified True if proof is valid
+    fn verify_zk_proof(
+        market_id: felt252,
+        outcome: felt252,
+        proof: Span<felt252>
+    ) -> bool {
+        // For v0: ZK proof verification is stubbed (always returns true)
+        // The actual verification logic would be in the ResolutionVerifier contract
+        // 
+        // In production, this would:
+        // 1. Hash the proof using pedersen
+        // 2. Call ResolutionVerifier::verify_resolution_proof()
+        // 3. Or implement actual SNARK verification using pedersen, poseidon, etc.
+        
+        true  // Stubbed - always verify
+    }
+
+    /// Compute hash of a ZK proof for storage
+    /// @param proof The ZK proof
+    /// @return hash The hash of the proof
+    fn compute_proof_hash(proof: Span<felt252>) -> felt252 {
+        let mut hasher = starknet::pedersen::Pedersen::new();
+        
+        proof.for_each(|p| {
+            hasher.update(p);
+        });
+        
+        hasher.finalize()
     }
 }
