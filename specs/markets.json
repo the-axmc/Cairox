@@ -1,50 +1,55 @@
 {
-  "name": "cairox-market-specs",
-  "version": "0.1.0",
   "markets": [
     {
-      "id": "market_001",
-      "type": "binary",
-      "question": "Will Starknet DAU exceed 100k by Dec 31, 2024?",
-      "metric": "dau",
-      "comparator": "gt",
-      "threshold": 100000,
-      "period": "daily",
-      "expires_at": "2024-12-31T23:59:59Z",
-      "oracle_address": "0x0000000000000000000000000000000000000000000000000000000000000001",
-      "fees": {
-        "creation_fee": "0.001",
-        "trading_fee": "0.005"
+      "market_id": "0743563b4b978ed732eef5076dfe162ae3c61128205b0bbd88ad985edadb7409",
+      "type": "binary_threshold",
+      "metric_source": "growthepie",
+      "endpoint": "/defi/tvl",
+      "cutoff": "2026-03-01T00:00:00Z",
+      "resolution_rule": "threshold",
+      "aggregation": "daily bucket at date 2026-03-01",
+      "outcomes": ["YES", "NO"],
+      "void_conditions": [
+        "if no BTC TVL data available by cutoff date",
+        "if Growthepie API returns error 5xx"
+      ],
+      "dispute_window_seconds": 86400,
+      "threshold_config": {
+        "threshold_value": 100000000000,
+        "threshold_operator": ">",
+        "threshold_unit": "USD"
+      },
+      "name": "Is BTC TVL above $100B on March 1st?",
+      "description": "Checks if Bitcoin's total value locked on Growthepie exceeds $100 billion at the end of March 1st, 2026 UTC",
+      "metadata": {
+        "category": "defi",
+        "asset": "bitcoin",
+        "metric": "tvl"
       }
     },
     {
-      "id": "market_002",
-      "type": "binary",
-      "question": "Will Starknet TVL exceed $500M this week?",
-      "metric": "tvl",
-      "comparator": "gt",
-      "threshold": 500000000,
-      "period": "weekly",
-      "expires_at": "2024-12-27T23:59:59Z",
-      "oracle_address": "0x0000000000000000000000000000000000000000000000000000000000000001",
-      "fees": {
-        "creation_fee": "0.001",
-        "trading_fee": "0.005"
-      }
-    },
-    {
-      "id": "market_003",
-      "type": "binary",
-      "question": "Will DAU change be positive tomorrow?",
-      "metric": "dau_change_1d",
-      "comparator": "gt",
-      "threshold": 0,
-      "period": "daily",
-      "expires_at": "2024-12-21T23:59:59Z",
-      "oracle_address": "0x0000000000000000000000000000000000000000000000000000000000000001",
-      "fees": {
-        "creation_fee": "0.001",
-        "trading_fee": "0.005"
+      "market_id": "606e8469f603d0c5dbf2d0060e4391c97c3816e9518ccd4374603e5b2a207e57",
+      "type": "categorical_top1",
+      "metric_source": "growthepie",
+      "endpoint": "/ecosystem/activity",
+      "cutoff": "2026-03-01T00:00:00Z",
+      "resolution_rule": "top1",
+      "aggregation": "daily bucket at date 2026-03-01",
+      "outcomes": ["Arbitrum", "Optimism", "Base", "Starknet"],
+      "void_conditions": [
+        "if no L2 activity data available by cutoff date",
+        "if Growthepie API returns error 5xx",
+        "if all L2s have zero activity"
+      ],
+      "dispute_window_seconds": 86400,
+      "category_field": "chain",
+      "value_field": "total_active_users",
+      "name": "Which L2 has highest TVL on March 1st?",
+      "description": "Predicts which Layer 2 blockchain will have the highest total value locked on March 1st, 2026 UTC",
+      "metadata": {
+        "category": "l2",
+        "metric": "tvl",
+        "chains": ["arbitrum", "optimism", "base", "starknet"]
       }
     }
   ]

@@ -1,0 +1,118 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/cairox-fi/market-specs/market.schema.json",
+  "title": "Market Specification",
+  "description": "Schema for defining prediction markets on Cairox using Growthepie data",
+  "type": "object",
+  "required": [
+    "market_id",
+    "type",
+    "metric_source",
+    "endpoint",
+    "cutoff",
+    "resolution_rule",
+    "aggregation",
+    "outcomes",
+    "void_conditions",
+    "dispute_window_seconds"
+  ],
+  "properties": {
+    "market_id": {
+      "description": "Deterministic hash (SHA-256) computed from the spec content (excluding market_id field itself)",
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "type": {
+      "description": "Market type - determines resolution mechanism",
+      "type": "string",
+      "enum": ["binary_threshold", "categorical_top1"]
+    },
+    "metric_source": {
+      "description": "Data source for the market",
+      "type": "string",
+      "enum": ["growthepie"]
+    },
+    "endpoint": {
+      "description": "Growthepie API endpoint path (without base URL)",
+      "type": "string",
+      "pattern": "^/.*$"
+    },
+    "cutoff": {
+      "description": "UTC timestamp for market expiration (ISO 8601 format)",
+      "type": "string",
+      "format": "date-time"
+    },
+    "resolution_rule": {
+      "description": "How to resolve the market outcome",
+      "type": "string",
+      "enum": ["threshold", "top1"]
+    },
+    "aggregation": {
+      "description": "How to select the final datapoint from the API response",
+      "type": "string",
+      "pattern": "^daily bucket at date [0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "outcomes": {
+      "description": "Array of possible outcomes",
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "string"
+      }
+    },
+    "threshold_config": {
+      "description": "Configuration for threshold-based markets (binary_threshold type)",
+      "type": "object",
+      "required": ["threshold_value", "threshold_operator", "threshold_unit"],
+      "properties": {
+        "threshold_value": {
+          "description": "The threshold value to compare against",
+          "type": "number"
+        },
+        "threshold_operator": {
+          "description": "Comparison operator",
+          "type": "string",
+          "enum": [">", ">=", "<", "<="]
+        },
+        "threshold_unit": {
+          "description": "Unit of the threshold value",
+          "type": "string"
+        }
+      }
+    },
+    "category_field": {
+      "description": "Field name in API response that contains categories (for categorical markets)",
+      "type": "string"
+    },
+    "value_field": {
+      "description": "Field name in API response that contains values to compare (for categorical markets)",
+      "type": "string"
+    },
+    "void_conditions": {
+      "description": "Conditions that would void the market",
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 0
+    },
+    "dispute_window_seconds": {
+      "description": "Time window in seconds for disputes after resolution",
+      "type": "integer",
+      "minimum": 0
+    },
+    "name": {
+      "description": "Human-readable market name",
+      "type": "string"
+    },
+    "description": {
+      "description": " Detailed market description",
+      "type": "string"
+    },
+    "metadata": {
+      "description": "Additional metadata for the market",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false
+}
