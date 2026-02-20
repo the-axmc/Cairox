@@ -51,6 +51,46 @@
         "metric": "tvl",
         "chains": ["arbitrum", "optimism", "base", "starknet"]
       }
+    },
+    {
+      "market_id": "auto-generated-daas-Feb22",
+      "type": "binary_threshold",
+      "metric_source": "growthepie",
+      "endpoint": "/defi/daa",
+      "asset": "starknet",
+      "threshold": 100000,
+      "aggregation": "daily bucket at date D",
+      "resolution_rule": "threshold",
+      "outcomes": ["YES", "NO"],
+      "cutoff": "2026-02-22T00:00:00Z",
+      "void_conditions": ["if no data by cutoff-1h"],
+      "dispute_window_seconds": 300,
+      "name": "Starknet DAA >= 100k on Feb 22?",
+      "description": "Checks if Starknet's daily active addresses reaches or exceeds 100,000 on Feb 22, 2026",
+      "metadata": {
+        "category": "users",
+        "metric": "daa"
+      }
+    },
+    {
+      "market_id": "auto-generated-txcount-Feb22",
+      "type": "binary_threshold",
+      "metric_source": "growthepie",
+      "endpoint": "/defi/txcount",
+      "asset": "starknet",
+      "threshold": 500000,
+      "aggregation": "daily bucket at date D",
+      "resolution_rule": "threshold",
+      "outcomes": ["YES", "NO"],
+      "cutoff": "2026-02-22T00:00:00Z",
+      "void_conditions": ["if no data by cutoff-1h"],
+      "dispute_window_seconds": 300,
+      "name": "Starknet txcount >= 500k on Feb 22?",
+      "description": "Checks if Starknet's daily transaction count reaches or exceeds 500,000 on Feb 22, 2026",
+      "metadata": {
+        "category": "activity",
+        "metric": "txcount"
+      }
     }
   ]
 }
