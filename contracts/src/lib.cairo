@@ -1,5 +1,6 @@
 mod Contract;
 mod oracle;
+mod arbitration;
 
 mod collateral_vault;
 mod outcome_token;
@@ -9,6 +10,7 @@ mod lmsr_market_maker;
 
 use cairox_contracts::Contract::Contract;
 use cairox_contracts::oracle::OptimisticOracle;
+use cairox_contracts::arbitration::Arbitration;
 use cairox_contracts::collateral_vault::CollateralVault;
 use cairox_contracts::outcome_token::OutcomeToken;
 use cairox_contracts::market_factory::MarketFactory;
