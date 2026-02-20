@@ -1,0 +1,27 @@
+{
+  "version": "0.2.0",
+  "cairo_version": "2.8.0",
+  "devnet": {
+    "url": "http://127.0.0.1:5050",
+    "chain_id": "SN_GOERLI",
+    "reset_on_deploy": true,
+    "account_path": "devnet/account.json",
+    "private_key_env": "DEVNET_PRIVATE_KEY"
+  },
+  "deployments": {
+    "local": {
+      "contract_name": "DummyMarket",
+      "class_hash_env": "DUMMY_CLASS_HASH"
+    },
+    "testnet": {
+      "contract_name": "CairoxMarket",
+      "class_hash_env": "CAIROX_CLASS_HASH"
+    }
+  },
+  "accounts": {
+    "deployer": {
+      "private_key_env": "DEPLOYER_PRIVATE_KEY",
+      "account_contract_env": "DEPLOYER_ACCOUNT"
+    }
+  }
+}

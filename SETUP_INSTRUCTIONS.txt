@@ -1,0 +1,43 @@
+# GitHub Repository Instructions
+# This file is for reference - do not commit to the actual repo
+
+## Create Repository Steps
+
+1. Go to https://github.com/new
+2. Enter repository name: `cairox`
+3. Select "Public"
+4. Check "Add a README file"
+5. Click "Create repository"
+
+## After Creating Repository
+
+git clone https://github.com/YOUR_USERNAME/cairox.git
+cd cairox
+
+# The following files/folders should already exist from this setup:
+# - contracts/
+# - oracle-agent/
+# - indexer/
+# - specs/
+# - README.md
+# - .github/workflows/ci.yml
+
+## Initialize Scarb Workspace
+
+cd contracts
+scarb init
+scarb add starknet
+
+# Create dummy contract for testing
+# Create src/lib.cairo with basic contract
+
+# Update Makefile with test, devnet-up, deploy-local, clean targets
+
+# Set up local devnet using foundry-anvil or starknet-devnet
+
+# Run local tests
+make test
+
+# Start local devnet and deploy
+make devnet-up
+make deploy-local

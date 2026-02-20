@@ -1,0 +1,51 @@
+{
+  "name": "cairox-market-specs",
+  "version": "0.1.0",
+  "markets": [
+    {
+      "id": "market_001",
+      "type": "binary",
+      "question": "Will Starknet DAU exceed 100k by Dec 31, 2024?",
+      "metric": "dau",
+      "comparator": "gt",
+      "threshold": 100000,
+      "period": "daily",
+      "expires_at": "2024-12-31T23:59:59Z",
+      "oracle_address": "0x0000000000000000000000000000000000000000000000000000000000000001",
+      "fees": {
+        "creation_fee": "0.001",
+        "trading_fee": "0.005"
+      }
+    },
+    {
+      "id": "market_002",
+      "type": "binary",
+      "question": "Will Starknet TVL exceed $500M this week?",
+      "metric": "tvl",
+      "comparator": "gt",
+      "threshold": 500000000,
+      "period": "weekly",
+      "expires_at": "2024-12-27T23:59:59Z",
+      "oracle_address": "0x0000000000000000000000000000000000000000000000000000000000000001",
+      "fees": {
+        "creation_fee": "0.001",
+        "trading_fee": "0.005"
+      }
+    },
+    {
+      "id": "market_003",
+      "type": "binary",
+      "question": "Will DAU change be positive tomorrow?",
+      "metric": "dau_change_1d",
+      "comparator": "gt",
+      "threshold": 0,
+      "period": "daily",
+      "expires_at": "2024-12-21T23:59:59Z",
+      "oracle_address": "0x0000000000000000000000000000000000000000000000000000000000000001",
+      "fees": {
+        "creation_fee": "0.001",
+        "trading_fee": "0.005"
+      }
+    }
+  ]
+}
