@@ -1,0 +1,15 @@
+# Oracle Agent v0 for Cairox - Dependencies
+
+# HTTP client for Growthepie API
+requests>=2.28.0
+
+# Starknet integration (optional - only needed for on-chain proposals)
+# Comment out if you don't need Starknet integration
+starknet-py>=0.5.0
+starkli>=0.2.0
+
+# Utils
+python-dotenv>=1.0.0
+
+# For local IPFS integration (optional)
+# ipfshttpclient>=0.4.8
