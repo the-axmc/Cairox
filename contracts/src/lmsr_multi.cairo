@@ -1,13 +1,7 @@
-// Stub for lmsr_multi - Cairo 2.x
 #[starknet::contract]
-mod LmsrMulti {
+mod Lmsrmulti {
     #[storage]
-    struct Storage {
-        initialized: bool,
-    }
-
+    struct Storage {}
     #[constructor]
-    fn constructor(ref self: ContractState) {
-        self.initialized.write(true);
-    }
+    fn constructor(ref self: ContractState) {}
 }
