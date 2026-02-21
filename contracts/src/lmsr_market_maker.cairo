@@ -9,7 +9,6 @@ mod LMSRMarketMaker {
     #[storage]
     struct Storage {
         owner: felt252,
-        // market_address -> b_parameter
         b_params: Map<felt252, u256>,
     }
 
@@ -32,7 +31,6 @@ mod LMSRMarketMaker {
         outcome: felt252,
         collateral: u256
     ) -> u256 {
-        // Simplified: 1:1 for now
         collateral
     }
 
@@ -45,7 +43,6 @@ mod LMSRMarketMaker {
         outcome: felt252,
         tokens: u256
     ) -> u256 {
-        // Simplified: 1:1 for now
         tokens
     }
 
@@ -57,6 +54,6 @@ mod LMSRMarketMaker {
         no_supply: u256,
         outcome: felt252
     ) -> u256 {
-        u256 { low: 1, high: 0 }
+        u256 { low: 50, high: 0 }
     }
 }
