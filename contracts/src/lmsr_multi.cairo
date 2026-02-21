@@ -9,8 +9,9 @@ mod LMSRMulti {
     #[storage]
     struct Storage {
         owner: felt252,
-        // market_address -> b_parameter
         b_params: Map<felt252, u256>,
+        // Store outcome prices for a market
+        outcome_prices: Map<(felt252, felt252), u256>,
     }
 
     #[constructor]
@@ -24,36 +25,23 @@ mod LMSRMulti {
     }
 
     #[external(v0)]
-    fn calculate_cost(
-        self: @ContractState,
-        b: u256,
-        supplies: Span<u256>,
-        outcome: usize,
-        amount: u256
-    ) -> u256 {
-        // Simplified cost calculation
-        amount
+    fn set_price(ref self: ContractState, market: felt252, outcome: felt252, price: u256) {
+        self.outcome_prices.write((market, outcome), price);
     }
 
     #[external(v0)]
-    fn get_prices(
+    fn get_price(self: @ContractState, market: felt252, outcome: felt252) -> u256 {
+        self.outcome_prices.read((market, outcome))
+    }
+
+    #[external(v0)]
+    fn calculate_payout(
         self: @ContractState,
-        b: u256,
-        supplies: Span<u256>
-    ) -> Span<u256> {
-        // Simplified: equal prices
-        let mut prices = array::ArrayTrait::new();
-        let len = supplies.len();
-        
-        let mut i = 0;
-        loop {
-            if i >= len {
-                break;
-            };
-            prices.append(u256 { low: 1, high: 0 });
-            i += 1;
-        };
-        
-        prices.span()
+        market: felt252,
+        outcome: felt252,
+        amount: u256
+    ) -> u256 {
+        let price = self.outcome_prices.read((market, outcome));
+        amount * price
     }
 }
