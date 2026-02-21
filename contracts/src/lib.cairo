@@ -1,4 +1,3 @@
-mod Contract;
 mod oracle;
 mod arbitration;
 mod resolution_verifier;
@@ -10,7 +9,6 @@ mod market;
 mod lmsr_market_maker;
 mod lmsr_multi;
 
-use cairox_contracts::Contract::Contract;
 use cairox_contracts::oracle::OptimisticOracle;
 use cairox_contracts::arbitration::Arbitration;
 use cairox_contracts::collateral_vault::CollateralVault;
