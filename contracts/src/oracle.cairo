@@ -25,13 +25,39 @@ mod CairoxOracle {
     }
 
     #[external(v0)]
-    fn update_value(ref self: ContractState, metric_id: felt252, value: u256) {
-        self.latest_values.write(metric_id, value);
+    fn update_daw(ref self: ContractState, value: u256) {
+        self.latest_values.write(METRIC_DAW, value);
         let timestamp: u256 = starknet::get_block_timestamp().into();
-        self.last_updated.write(metric_id, timestamp);
-        
-        let count = self.update_count.read(metric_id);
-        self.update_count.write(metric_id, count + u256 { low: 1, high: 0 });
+        self.last_updated.write(METRIC_DAW, timestamp);
+        let count = self.update_count.read(METRIC_DAW);
+        self.update_count.write(METRIC_DAW, count + u256 { low: 1, high: 0 });
+    }
+
+    #[external(v0)]
+    fn update_txs(ref self: ContractState, value: u256) {
+        self.latest_values.write(METRIC_TXS, value);
+        let timestamp: u256 = starknet::get_block_timestamp().into();
+        self.last_updated.write(METRIC_TXS, timestamp);
+        let count = self.update_count.read(METRIC_TXS);
+        self.update_count.write(METRIC_TXS, count + u256 { low: 1, high: 0 });
+    }
+
+    #[external(v0)]
+    fn update_contracts(ref self: ContractState, value: u256) {
+        self.latest_values.write(METRIC_CONTRACTS, value);
+        let timestamp: u256 = starknet::get_block_timestamp().into();
+        self.last_updated.write(METRIC_CONTRACTS, timestamp);
+        let count = self.update_count.read(METRIC_CONTRACTS);
+        self.update_count.write(METRIC_CONTRACTS, count + u256 { low: 1, high: 0 });
+    }
+
+    #[external(v0)]
+    fn update_tokens(ref self: ContractState, value: u256) {
+        self.latest_values.write(METRIC_TOKENS, value);
+        let timestamp: u256 = starknet::get_block_timestamp().into();
+        self.last_updated.write(METRIC_TOKENS, timestamp);
+        let count = self.update_count.read(METRIC_TOKENS);
+        self.update_count.write(METRIC_TOKENS, count + u256 { low: 1, high: 0 });
     }
 
     #[external(v0)]
@@ -45,11 +71,6 @@ mod CairoxOracle {
     }
 
     #[external(v0)]
-    fn get_update_count(self: @ContractState, metric_id: felt252) -> u256 {
-        self.update_count.read(metric_id)
-    }
-
-    #[external(v0)]
     fn get_daw(self: @ContractState) -> u256 {
         self.latest_values.read(METRIC_DAW)
     }
@@ -57,5 +78,15 @@ mod CairoxOracle {
     #[external(v0)]
     fn get_transaction_count(self: @ContractState) -> u256 {
         self.latest_values.read(METRIC_TXS)
+    }
+
+    #[external(v0)]
+    fn get_contract_activity(self: @ContractState) -> u256 {
+        self.latest_values.read(METRIC_CONTRACTS)
+    }
+
+    #[external(v0)]
+    fn get_token_activity(self: @ContractState) -> u256 {
+        self.latest_values.read(METRIC_TOKENS)
     }
 }
