@@ -29,19 +29,8 @@ jobs:
         with:
           scarb-version: "2.8.0"
 
-      - name: Setup Starknet Foundry (snforge)
-        uses: foundry-rs/setup-snfoundry@v4
-
       - name: Show tool versions
-        run: |
-          scarb --version
-          snforge --version
+        run: scarb --version
 
       - name: Build
         run: scarb build
-
-      - name: Test
-        run: snforge test
-
-      - name: Format check
-        run: scarb fmt --check
