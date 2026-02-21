@@ -1,26 +1,26 @@
 #[starknet::interface]
-pub trait IOptimisticOracle {
+pub trait IOptimisticOracle<T> {
     fn propose(
-        ref self: ContractState,
+        ref self: T,
         market_id: felt252,
         outcome: felt252,
         data_hash: felt252,
         data_uri: felt252,
         bond: u256_lib::U256
     );
-    fn dispute(ref self: ContractState, market_id: felt252, bond: u256_lib::U256);
-    fn finalize(ref self: ContractState, market_id: felt252);
-    fn resolve_arbitration(ref self: ContractState, market_id: felt252, outcome: felt252);
-    fn get_market_status(self: @ContractState, market_id: felt252) -> felt252;
+    fn dispute(ref self: T, market_id: felt252, bond: u256_lib::U256);
+    fn finalize(ref self: T, market_id: felt252);
+    fn resolve_arbitration(ref self: T, market_id: felt252, outcome: felt252);
+    fn get_market_status(self: @T, market_id: felt252) -> felt252;
     fn propose_with_proof(
-        ref self: ContractState,
+        ref self: T,
         market_id: felt252,
         outcome: felt252,
         data_hash: felt252,
         zk_proof: Span<felt252>
     );
-    fn fast_finalize(ref self: ContractState, market_id: felt252);
-    fn is_disputed(self: @ContractState, market_id: felt252) -> bool;
+    fn fast_finalize(ref self: T, market_id: felt252);
+    fn is_disputed(self: @T, market_id: felt252) -> bool;
 }
 
 #[starknet::contract]
@@ -92,7 +92,7 @@ mod OptimisticOracle {
 
     #[external]
     fn propose(
-        ref self: ContractState,
+        ref self: T,
         market_id: felt252,
         outcome: felt252,
         data_hash: felt252,
@@ -131,7 +131,7 @@ mod OptimisticOracle {
     }
 
     #[external]
-    fn dispute(ref self: ContractState, market_id: felt252, bond: u256_lib::U256) {
+    fn dispute(ref self: T, market_id: felt252, bond: u256_lib::U256) {
         let caller = get_caller_address();
         
         let market = self.markets.read(market_id);
@@ -155,7 +155,7 @@ mod OptimisticOracle {
     }
 
     #[external]
-    fn finalize(ref self: ContractState, market_id: felt252) {
+    fn finalize(ref self: T, market_id: felt252) {
         let market = self.markets.read(market_id);
         
         // Market must be in Proposed status
@@ -178,7 +178,7 @@ mod OptimisticOracle {
     }
 
     #[external]
-    fn resolve_arbitration(ref self: ContractState, market_id: felt252, outcome: felt252) {
+    fn resolve_arbitration(ref self: T, market_id: felt252, outcome: felt252) {
         let caller = get_caller_address();
         
         let market = self.markets.read(market_id);
@@ -202,7 +202,7 @@ mod OptimisticOracle {
 
     #[external]
     fn propose_with_proof(
-        ref self: ContractState,
+        ref self: T,
         market_id: felt252,
         outcome: felt252,
         data_hash: felt252,
@@ -259,7 +259,7 @@ mod OptimisticOracle {
     /// 2. Market was proposed with proof (fast_path = true)
     /// 3. ZK proof was verified during propose
     #[external]
-    fn fast_finalize(ref self: ContractState, market_id: felt252) {
+    fn fast_finalize(ref self: T, market_id: felt252) {
         let market = self.markets.read(market_id);
         
         // Check fast-finalize is enabled
@@ -286,13 +286,13 @@ mod OptimisticOracle {
     }
 
     #[external]
-    fn get_market_status(self: @ContractState, market_id: felt252) -> felt252 {
+    fn get_market_status(self: @T, market_id: felt252) -> felt252 {
         let market = self.markets.read(market_id);
         market.status
     }
 
     #[external]
-    fn is_disputed(self: @ContractState, market_id: felt252) -> bool {
+    fn is_disputed(self: @T, market_id: felt252) -> bool {
         let market = self.markets.read(market_id);
         market.disputed
     }
