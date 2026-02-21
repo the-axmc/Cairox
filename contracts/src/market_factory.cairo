@@ -1,4 +1,4 @@
-// MarketFactory - Creates markets
+// MarketFactory - Deploys markets
 #[starknet::contract]
 mod MarketFactory {
     use starknet::ContractAddress;
@@ -9,27 +9,25 @@ mod MarketFactory {
     #[storage]
     struct Storage {
         owner: ContractAddress,
-        market_count: u64,
+        market_count: u256,
     }
 
     #[constructor]
     fn constructor(ref self: ContractState) {
-        let caller = get_caller_address();
-        self.owner.write(caller);
+        self.owner.write(get_caller_address());
         self.market_count.write(0);
     }
 
     #[external(v0)]
-    fn create_market(ref self: ContractState) -> u64 {
-        let caller = get_caller_address();
-        assert(caller == self.owner.read(), 'Only owner');
-        let count = self.market_count.read();
-        self.market_count.write(count + 1);
-        count
+    fn create_market(ref self: ContractState, market: ContractAddress, question: felt252) -> u256 {
+        assert(get_caller_address() == self.owner.read(), 'Only owner');
+        let id = self.market_count.read();
+        self.market_count.write(id + 1);
+        id
     }
 
     #[external(v0)]
-    fn get_market_count(self: @ContractState) -> u64 {
+    fn get_market_count(self: @ContractState) -> u256 {
         self.market_count.read()
     }
 }
