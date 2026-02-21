@@ -1,13 +1,7 @@
-// Stub for collateral_vault - Cairo 2.x
 #[starknet::contract]
-mod CollateralVault {
+mod Collateralvault {
     #[storage]
-    struct Storage {
-        initialized: bool,
-    }
-
+    struct Storage {}
     #[constructor]
-    fn constructor(ref self: ContractState) {
-        self.initialized.write(true);
-    }
+    fn constructor(ref self: ContractState) {}
 }
