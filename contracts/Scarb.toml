@@ -1,11 +1,11 @@
 # Cairox Contracts - Scarb.toml
 
 [package]
-name = \"cairox_contracts\"
-version = \"0.1.0\"
+name = "cairox_contracts"
+version = "0.1.0"
 
 [dependencies]
-starknet = \">=2.8.0\"
+starknet = ">=2.8.0"
 
 [[target.starknet-contract]]
 casm = true
