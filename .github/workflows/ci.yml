@@ -13,7 +13,6 @@ concurrency:
 
 jobs:
   contracts:
-    name: Contracts (build, test, fmt)
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -23,13 +22,18 @@ jobs:
         working-directory: contracts
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Setup Scarb
         uses: software-mansion/setup-scarb@v1
         with:
           scarb-version: "2.8.0"
+
+      - name: Setup Starknet Foundry (snforge)
+        uses: foundry-rs/setup-snfoundry@v4
+        # Optional: pin a tool version; otherwise it uses latest or .tool-versions if present
+        # with:
+        #   starknet-foundry-version: "0.18.0"
 
       - name: Cache Scarb
         uses: actions/cache@v4
@@ -41,25 +45,20 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-scarb-
 
-      - name: Setup Starknet Foundry
-        uses: foundry-rs/starknet-foundry@v0.3.1
-        with:
-          snforge-version: "0.18.0"
-
       - name: Show tool versions
         run: |
           scarb --version
           snforge --version
 
-      - name: Install deps + build
+      - name: Build
         run: |
           scarb update
           scarb build
 
-      - name: Run tests
+      - name: Test
         run: |
           snforge test
 
-      - name: Check formatting
+      - name: Format check
         run: |
           scarb fmt --check
