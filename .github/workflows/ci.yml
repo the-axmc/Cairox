@@ -31,19 +31,6 @@ jobs:
 
       - name: Setup Starknet Foundry (snforge)
         uses: foundry-rs/setup-snfoundry@v4
-        # Optional: pin a tool version; otherwise it uses latest or .tool-versions if present
-        # with:
-        #   starknet-foundry-version: "0.18.0"
-
-      - name: Cache Scarb
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/scarb
-            contracts/target
-          key: ${{ runner.os }}-scarb-${{ hashFiles('contracts/Scarb.lock', 'contracts/Scarb.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-scarb-
 
       - name: Show tool versions
         run: |
@@ -51,14 +38,10 @@ jobs:
           snforge --version
 
       - name: Build
-        run: |
-          scarb update
-          scarb build
+        run: scarb build
 
       - name: Test
-        run: |
-          snforge test
+        run: snforge test
 
       - name: Format check
-        run: |
-          scarb fmt --check
+        run: scarb fmt --check
