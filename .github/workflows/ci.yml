@@ -2,39 +2,64 @@ name: CI
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ master ]
   pull_request:
-    branches: [ main ]
+    branches: [ master ]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  test:
+  contracts:
+    name: Contracts (build, test, fmt)
     runs-on: ubuntu-latest
-    
+    timeout-minutes: 20
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: contracts
+
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Setup Cairo
-      uses: software-mansion/setup-scarb@v1
-      with:
-        scarb-version: "2.8.0"
-    
-    - name: Setup Starknet Foundry
-      uses: foundry-rs/starknet-foundry@v0.3.1
-      with:
-        snforge-version: "0.18.0"
-    
-    - name: Install Scarb dependencies
-      working-directory: contracts
-      run: |
-        scarb update
-        scarb build
-    
-    - name: Run tests
-      working-directory: contracts
-      run: |
-        scarb test
-    
-    - name: Check formatting
-      working-directory: contracts
-      run: |
-        scarb fmt --check
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Scarb
+        uses: software-mansion/setup-scarb@v1
+        with:
+          scarb-version: "2.8.0"
+
+      - name: Cache Scarb
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/scarb
+            contracts/target
+          key: ${{ runner.os }}-scarb-${{ hashFiles('contracts/Scarb.lock', 'contracts/Scarb.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-scarb-
+
+      - name: Setup Starknet Foundry
+        uses: foundry-rs/starknet-foundry@v0.3.1
+        with:
+          snforge-version: "0.18.0"
+
+      - name: Show tool versions
+        run: |
+          scarb --version
+          snforge --version
+
+      - name: Install deps + build
+        run: |
+          scarb update
+          scarb build
+
+      - name: Run tests
+        run: |
+          snforge test
+
+      - name: Check formatting
+        run: |
+          scarb fmt --check
