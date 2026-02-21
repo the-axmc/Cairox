@@ -14,6 +14,16 @@ interface Market {
   resolved: boolean;
 }
 
+interface EcosystemStats {
+  daw: number;
+  dawChange: number;
+  transactions: number;
+  transactionsChange: number;
+  contracts: number;
+  contractsChange: number;
+  lastUpdated: string;
+}
+
 interface WalletState {
   address: string | null;
   connected: boolean;
@@ -31,6 +41,20 @@ const CONTRACT_ADDRESSES = {
   oracle: '0x0000000000000000000000000000000000000000000000000000000000000002',
   market: '0x0000000000000000000000000000000000000000000000000000000000000003',
   collateralVault: '0x0000000000000000000000000000000000000000000000000000000000000004',
+};
+
+// Growthepie API base URL
+const GROWTHEPIE_API = 'https://api.growthepie.com/v1';
+
+// Mock ecosystem data (used when API is unavailable)
+const MOCK_ECOSYSTEM_STATS: EcosystemStats = {
+  daw: 85432,
+  dawChange: 12.5,
+  transactions: 4521000,
+  transactionsChange: 8.3,
+  contracts: 892,
+  contractsChange: 15.2,
+  lastUpdated: new Date().toISOString(),
 };
 
 // Mock data for demonstration - in production this would come from the contracts
@@ -94,9 +118,86 @@ export default function Home() {
     balance: '0',
   });
   const [markets, setMarkets] = useState<Market[]>(MOCK_MARKETS);
+  const [ecosystemStats, setEcosystemStats] = useState<EcosystemStats>(MOCK_ECOSYSTEM_STATS);
+  const [dataStatus, setDataStatus] = useState<'loading' | 'live' | 'demo'>('loading');
   const [notification, setNotification] = useState<Notification | null>(null);
   const [tradeAmounts, setTradeAmounts] = useState<{ [key: string]: string }>({});
   const [loading, setLoading] = useState(false);
+
+  // Fetch ecosystem stats from Growthepie API
+  const fetchEcosystemStats = useCallback(async () => {
+    setDataStatus('loading');
+    try {
+      // Try to fetch from all three endpoints in parallel
+      const [dawRes, txRes, contractsRes] = await Promise.allSettled([
+        fetch(`${GROWTHEPIE_API}/daily-active-wallets`),
+        fetch(`${GROWTHEPIE_API}/transactions`),
+        fetch(`${GROWTHEPIE_API}/contracts`),
+      ]);
+
+      let hasRealData = false;
+      let newStats = { ...MOCK_ECOSYSTEM_STATS };
+
+      // Process DAW data
+      if (dawRes.status === 'fulfilled' && dawRes.value.ok) {
+        const dawData = await dawRes.value.json();
+        if (dawData.data && dawData.data.length > 0) {
+          const latest = dawData.data[dawData.data.length - 1];
+          newStats.daw = latest.daw || latest.value || 0;
+          newStats.dawChange = calculateChange(dawData.data);
+          hasRealData = true;
+        }
+      }
+
+      // Process transactions data
+      if (txRes.status === 'fulfilled' && txRes.value.ok) {
+        const txData = await txRes.value.json();
+        if (txData.data && txData.data.length > 0) {
+          const latest = txData.data[txData.data.length - 1];
+          newStats.transactions = latest.transactions || latest.value || 0;
+          newStats.transactionsChange = calculateChange(txData.data);
+          hasRealData = true;
+        }
+      }
+
+      // Process contracts data
+      if (contractsRes.status === 'fulfilled' && contractsRes.value.ok) {
+        const contractsData = await contractsRes.value.json();
+        if (contractsData.data && contractsData.data.length > 0) {
+          const latest = contractsData.data[contractsData.data.length - 1];
+          newStats.contracts = latest.contracts || latest.value || 0;
+          newStats.contractsChange = calculateChange(contractsData.data);
+          hasRealData = true;
+        }
+      }
+
+      newStats.lastUpdated = new Date().toISOString();
+      setEcosystemStats(newStats);
+      setDataStatus(hasRealData ? 'live' : 'demo');
+    } catch (error) {
+      console.warn('Failed to fetch Growthepie data:', error);
+      setDataStatus('demo');
+    }
+  }, []);
+
+  // Helper to calculate percentage change from data array
+  const calculateChange = (data: any[]): number => {
+    if (!data || data.length < 2) return 0;
+    const latest = data[data.length - 1];
+    const previous = data[data.length - 2];
+    const latestVal = latest.daw || latest.transactions || latest.contracts || latest.value || 0;
+    const prevVal = previous.daw || previous.transactions || previous.contracts || previous.value || 0;
+    if (prevVal === 0) return 0;
+    return ((latestVal - prevVal) / prevVal) * 100;
+  };
+
+  // Fetch ecosystem stats on mount
+  useEffect(() => {
+    fetchEcosystemStats();
+    // Refresh stats every 5 minutes
+    const interval = setInterval(fetchEcosystemStats, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [fetchEcosystemStats]);
 
   // Show notification helper
   const showNotification = useCallback((type: 'success' | 'error', message: string) => {
@@ -290,6 +391,75 @@ export default function Home() {
             <div className="stat-value">{wallet.connected ? wallet.balance : '--'}</div>
           </div>
         </div>
+
+        {/* Ecosystem Stats from Growthepie */}
+        <section className="markets-section">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+            <h2 className="section-title">📈 Starknet Ecosystem Stats</h2>
+            <span style={{ 
+              fontSize: '0.75rem', 
+              padding: '0.25rem 0.75rem', 
+              borderRadius: '9999px',
+              backgroundColor: dataStatus === 'live' ? '#22c55e20' : dataStatus === 'demo' ? '#f59e0b20' : '#3b82f620',
+              color: dataStatus === 'live' ? '#22c55e' : dataStatus === 'demo' ? '#f59e0b' : '#3b82f6',
+            }}>
+              {dataStatus === 'loading' ? '⏳ Loading...' : dataStatus === 'live' ? '🟢 Live Data' : '⚠️ Demo Values'}
+            </span>
+          </div>
+          
+          {dataStatus === 'demo' && (
+            <div style={{ 
+              marginBottom: '1rem', 
+              padding: '0.75rem 1rem', 
+              backgroundColor: '#f59e0b10', 
+              border: '1px solid #f59e0b30', 
+              borderRadius: '0.5rem',
+              fontSize: '0.875rem',
+              color: '#f59e0b',
+            }}>
+              ℹ️ Real-time data unavailable - showing demo values
+            </div>
+          )}
+
+          <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+            <div className="stat-card">
+              <div className="stat-label">Daily Active Wallets</div>
+              <div className="stat-value">{ecosystemStats.daw.toLocaleString()}</div>
+              <div style={{ 
+                fontSize: '0.75rem', 
+                color: ecosystemStats.dawChange >= 0 ? '#22c55e' : '#ef4444',
+                marginTop: '0.25rem'
+              }}>
+                {ecosystemStats.dawChange >= 0 ? '↑' : '↓'} {Math.abs(ecosystemStats.dawChange).toFixed(1)}% (24h)
+              </div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">Total Transactions</div>
+              <div className="stat-value">{(ecosystemStats.transactions / 1000000).toFixed(2)}M</div>
+              <div style={{ 
+                fontSize: '0.75rem', 
+                color: ecosystemStats.transactionsChange >= 0 ? '#22c55e' : '#ef4444',
+                marginTop: '0.25rem'
+              }}>
+                {ecosystemStats.transactionsChange >= 0 ? '↑' : '↓'} {Math.abs(ecosystemStats.transactionsChange).toFixed(1)}% (24h)
+              </div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">Active Contracts</div>
+              <div className="stat-value">{ecosystemStats.contracts.toLocaleString()}</div>
+              <div style={{ 
+                fontSize: '0.75rem', 
+                color: ecosystemStats.contractsChange >= 0 ? '#22c55e' : '#ef4444',
+                marginTop: '0.25rem'
+              }}>
+                {ecosystemStats.contractsChange >= 0 ? '↑' : '↓'} {Math.abs(ecosystemStats.contractsChange).toFixed(1)}% (24h)
+              </div>
+            </div>
+          </div>
+          <div style={{ fontSize: '0.75rem', color: '#71717a', marginTop: '0.5rem', textAlign: 'right' }}>
+            Last updated: {new Date(ecosystemStats.lastUpdated).toLocaleTimeString()}
+          </div>
+        </section>
 
         {/* Markets */}
         <section className="markets-section">
