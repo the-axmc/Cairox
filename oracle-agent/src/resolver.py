@@ -19,6 +19,7 @@ class ResolutionRule(Enum):
     THRESHOLD = "threshold"  # YES if value >= threshold
     TOP1 = "top1"            # YES if top value, NO otherwise
     TOP1_CATEGORICAL = "top1_categorical"  # Categorical: return the winner
+    BINARY_THRESHOLD = "binary_threshold"  # Binary outcome based on threshold
 
 
 class AggregationMethod(Enum):
@@ -41,6 +42,9 @@ class MarketSpec:
     data_key: Optional[str] = None  # Key in response to use for resolution
     threshold: Optional[float] = None  # For THRESHOLD rule
     categorical_options: Optional[List[str]] = None  # For categorical markets
+    metric_source: Optional[str] = None  # Data source (e.g., "growthepie")
+    void_conditions: Optional[List[str]] = None  # Conditions under which market should be voided
+    asset: Optional[str] = None  # Asset being tracked (e.g., "starknet")
 
 
 @dataclass
@@ -282,6 +286,21 @@ class MarketResolver:
             else:
                 outcome = str(aggregated_value) if aggregated_value else "unknown"
 
+        elif market_spec.resolution_rule == ResolutionRule.BINARY_THRESHOLD:
+            # Binary threshold market: YES if value >= threshold, NO otherwise
+            if market_spec.threshold is None:
+                raise ValueError("BINARY_THRESHOLD resolution rule requires a threshold value")
+
+            try:
+                value = float(aggregated_value) if aggregated_value is not None else None
+            except (TypeError, ValueError):
+                raise ValueError(f"Cannot convert aggregated value to float: {aggregated_value}")
+
+            if value is None:
+                raise ValueError("Aggregated value is None; cannot resolve market")
+
+            outcome = "YES" if value >= market_spec.threshold else "NO"
+
         else:
             raise ValueError(f"Unknown resolution rule: {resolution_rule}")
 
@@ -313,3 +332,62 @@ class MarketResolver:
         """
         market_spec = self.parse_market_spec(spec)
         return self.resolve(market_spec, data)
+
+    # ============= Deterministic Resolution Functions =============
+
+    def resolve_daa_binary(self, spec: MarketSpec, data: Dict[str, Any]) -> str:
+        """
+        Binary: DAA >= threshold? Deterministic resolution.
+
+        Args:
+            spec: Market specification with threshold
+            data: Data dictionary containing 'daa' or 'daily_active_addresses'
+
+        Returns:
+            "YES" if DAA >= threshold, "NO" otherwise
+        """
+        threshold = spec.threshold
+        daa = data.get('daa', data.get('daily_active_addresses', 0))
+
+        if daa is None:
+            raise ValueError("DAA data is None; cannot resolve market")
+
+        return "YES" if float(daa) >= threshold else "NO"
+
+    def resolve_txcount_binary(self, spec: MarketSpec, data: Dict[str, Any]) -> str:
+        """
+        Binary: txcount >= threshold? Deterministic resolution.
+
+        Args:
+            spec: Market specification with threshold
+            data: Data dictionary containing 'txcount' or 'transaction_count'
+
+        Returns:
+            "YES" if txcount >= threshold, "NO" otherwise
+        """
+        threshold = spec.threshold
+        txcount = data.get('txcount', data.get('transaction_count', 0))
+
+        if txcount is None:
+            raise ValueError("txcount data is None; cannot resolve market")
+
+        return "YES" if float(txcount) >= threshold else "NO"
+
+    def resolve_fees_binary(self, spec: MarketSpec, data: Dict[str, Any]) -> str:
+        """
+        Binary: fees >= threshold? Deterministic resolution.
+
+        Args:
+            spec: Market specification with threshold
+            data: Data dictionary containing 'fees' or 'total_fees'
+
+        Returns:
+            "YES" if fees >= threshold, "NO" otherwise
+        """
+        threshold = spec.threshold
+        fees = data.get('fees', data.get('total_fees', 0))
+
+        if fees is None:
+            raise ValueError("Fees data is None; cannot resolve market")
+
+        return "YES" if float(fees) >= threshold else "NO"

@@ -259,7 +259,170 @@ class OracleAgent:
             print("Use 'finalize' mode after the dispute period")
         
         return outcome
-    
+
+    def is_market_due_for_resolution(self, market_id: str) -> bool:
+        """
+        Check if a market is due for resolution based on cutoff time.
+
+        Args:
+            market_id: Market identifier
+
+        Returns:
+            True if market is due for resolution
+        """
+        spec = self.get_market_spec(market_id)
+        if spec is None:
+            return False
+
+        cutoff_str = spec.get("cutoff")
+        if not cutoff_str:
+            return False
+
+        try:
+            from datetime import datetime, timezone
+            cutoff = datetime.fromisoformat(cutoff_str.replace("Z", "+00:00"))
+            now = datetime.now(timezone.utc)
+            return now >= cutoff
+        except (ValueError, TypeError):
+            return False
+
+    def fetch_growthepie_data(self, endpoint: str) -> Optional[Dict]:
+        """
+        Fetch data from Growthepie API.
+
+        Args:
+            endpoint: API endpoint path (e.g., "/defi/daa")
+
+        Returns:
+           Raw data dictionary or None if API call fails
+        """
+        try:
+            return self.growthepie.fetch_market_data(endpoint)
+        except GrowthepieError as e:
+            print(f"Error fetching Growthepie data from {endpoint}: {e}")
+            return None
+
+    def resolve_deterministically(self, market_id: str, endpoint: str, threshold: float, metric_name: str) -> Optional[Dict]:
+        """
+        Resolve a market deterministically using Growthepie API.
+
+        Args:
+            market_id: Market identifier
+            endpoint: Growthepie endpoint (e.g., "/defi/daa")
+            threshold: Threshold value for YES/NO classification
+            metric_name: Name of the metric for logging
+
+        Returns:
+            Resolution result dict with outcome, data, or None on error
+        """
+        # Fetch data
+        data = self.fetch_growthepie_data(endpoint)
+        if data is None:
+            print(f"❌ No data available for {metric_name} from Growthepie API")
+            return None
+
+        # Compute outcome deterministically
+        try:
+            value = data.get("value", data.get("v", data.get("daa", data.get("txcount", data.get("total_fees", 0)))))
+            outcome = "YES" if float(value) >= threshold else "NO"
+
+            return {
+                "outcome": outcome,
+                "value": value,
+                "data": data,
+                "endpoint": endpoint,
+            }
+        except (TypeError, ValueError) as e:
+            print(f"❌ Error computing deterministic outcome: {e}")
+            return None
+
+    def run_deterministic_markets(self, propose: bool = True) -> Dict[str, Dict]:
+        """
+        Run deterministic markets (binary threshold markets).
+
+        This method:
+        1. Checks which markets are due for resolution
+        2. Fetches Growthepie data
+        3. Computes outcome deterministically
+        4. Proposes to oracle if valid data exists
+        5. Handles void conditions (no data = no proposal)
+
+        Args:
+            propose: Whether to propose outcomes on-chain
+
+        Returns:
+            Dictionary of market_id -> resolution result
+        """
+        results = {}
+
+        for market_id, spec in self._market_specs.items():
+            market_type = spec.get("type")
+            if market_type != "binary_threshold":
+                continue
+
+            if not self.is_market_due_for_resolution(market_id):
+                print(f"[{datetime.utcnow().isoformat()}] Skipping {market_id}: not due yet")
+                continue
+
+            print(f"[{datetime.utcnow().isoformat()}] Processing deterministic market: {market_id}")
+
+            endpoint = spec.get("endpoint", "")
+            threshold = spec.get("threshold", 0)
+
+            # Determine metric name from endpoint
+            metric_name = "unknown"
+            if "/daa" in endpoint:
+                metric_name = "DAA"
+            elif "/txcount" in endpoint:
+                metric_name = "txcount"
+            elif "/fees" in endpoint:
+                metric_name = "fees"
+
+            result = self.resolve_deterministically(market_id, endpoint, threshold, metric_name)
+
+            if result is None:
+                # Void condition: no data available
+                print(f"⚠️  Void condition triggered for {market_id}: no data available")
+                results[market_id] = {
+                    "status": "voided",
+                    "reason": "no_data_available",
+                    "market_id": market_id,
+                }
+                continue
+
+            # Propose outcome
+            if propose:
+                outcome_outcome = self.compute_outcome(market_id, result["data"])
+                if outcome_outcome:
+                    outcome_outcome.outcome = result["outcome"]
+                    proposal_result = self.propose_outcome(outcome_outcome)
+                    if proposal_result:
+                        results[market_id] = {
+                            "status": "proposed",
+                            "outcome": result["outcome"],
+                            "value": result["value"],
+                            "proposal_result": proposal_result,
+                        }
+                    else:
+                        results[market_id] = {
+                            "status": "proposal_failed",
+                            "outcome": result["outcome"],
+                            "reason": "proposal failed",
+                        }
+                else:
+                    results[market_id] = {
+                        "status": "error",
+                        "reason": "compute_outcome failed",
+                    }
+            else:
+                results[market_id] = {
+                    "status": "computed_only",
+                    "outcome": result["outcome"],
+                    "value": result["value"],
+                }
+
+        return results
+
     def run_all(self, propose: bool = True) -> Dict[str, MarketOutcome]:
         """
         Run all markets from the specifications.
