@@ -76,7 +76,7 @@ class E2ETestnetRunner:
         self.collateral_vault = None
         self.market_factory = None
         self.lmsr_maker = None
-        self.usdc_token = None
+        self.stablecoin_token = None
         self.daa_market_id = None
         
     async def connect(self) -> bool:
@@ -120,7 +120,11 @@ class E2ETestnetRunner:
         oracle_address = os.environ.get('ORACLE_ADDRESS_TESTNET')
         factory_address = os.environ.get('MARKET_FACTORY_ADDRESS_TESTNET')
         vault_address = os.environ.get('COLLATERAL_VAULT_ADDRESS_TESTNET')
-        usdc_address = os.environ.get('USDC_ADDRESS_TESTNET')
+        stablecoin_address = (
+            os.environ.get('STABLECOIN_ADDRESS_TESTNET')
+            or os.environ.get('COLLATERAL_TOKEN_ADDRESS')
+            or os.environ.get('USDC_ADDRESS_TESTNET')
+        )
         
         if oracle_address:
             self.oracle_contract = Contract(
@@ -146,22 +150,24 @@ class E2ETestnetRunner:
             )
             print(f"✓ Loaded CollateralVault: {vault_address}")
         
-        if usdc_address:
-            self.usdc_token = Contract(
-                address=int(usdc_address, 16),
-                abi=self._get_usdc_abi(),
+        if stablecoin_address:
+            self.stablecoin_token = Contract(
+                address=int(stablecoin_address, 16),
+                abi=self._get_stablecoin_abi(),
                 provider=self.account
             )
-            print(f"✓ Loaded USDC Token: {usdc_address}")
+            print(f"✓ Loaded Stablecoin Token: {stablecoin_address}")
         
         # If contracts not in environment, ask user to provide
-        if not all([oracle_address, factory_address, vault_address, usdc_address]):
+        if not all([oracle_address, factory_address, vault_address, stablecoin_address]):
             print("\n  ⚠️  Some contracts not found in environment variables")
             print("  Please set:")
             print("    ORACLE_ADDRESS_TESTNET")
             print("    MARKET_FACTORY_ADDRESS_TESTNET")
             print("    COLLATERAL_VAULT_ADDRESS_TESTNET")
-            print("    USDC_ADDRESS_TESTNET")
+            print("    STABLECOIN_ADDRESS_TESTNET")
+            print("    COLLATERAL_TOKEN_ADDRESS")
+            print("    USDC_ADDRESS_TESTNET (legacy)")
             
             # Check if user wants to provide addresses manually
             if not oracle_address:
@@ -173,7 +179,7 @@ class E2ETestnetRunner:
                         provider=self.account
                     )
         
-        return bool(self.oracle_contract and self.market_factory and self.collateral_vault and self.usdc_token)
+        return bool(self.oracle_contract and self.market_factory and self.collateral_vault and self.stablecoin_token)
     
     def _get_oracle_abi(self) -> List[Dict]:
         """Get OptimisticOracle ABI."""
@@ -229,8 +235,8 @@ class E2ETestnetRunner:
             ]},
         ]
     
-    def _get_usdc_abi(self) -> List[Dict]:
-        """Get USDC Token ABI."""
+    def _get_stablecoin_abi(self) -> List[Dict]:
+        """Get stablecoin token ABI."""
         return [
             {"name": "balance_of", "inputs": [
                 {"name": "account", "type": "felt"}
@@ -365,7 +371,7 @@ class E2ETestnetRunner:
                 }
                 
                 print(f"  ✓ Fetched fees data:")
-                print(f"    - Fees (today): {mock_response['fees'] / 1e6:.2f} USDC")
+                print(f"    - Fees (today): {mock_response['fees'] / 1e6:.2f} Stablecoin")
                 
                 return mock_response
                 
@@ -439,10 +445,10 @@ class E2ETestnetRunner:
             balance = await self.collateral_vault.functions["get_balance"].call(self.account_address)
             balance_value = balance.low + (balance.high << 128)
             
-            # Get USDC decimals
-            decimals = await self.usdc_token.functions["decimals"].call()
+            # Get stablecoin decimals
+            decimals = await self.stablecoin_token.functions["decimals"].call()
             
-            print(f"  Account Balance: {balance_value / 10**decimals:.2f} USDC")
+            print(f"  Account Balance: {balance_value / 10**decimals:.2f} Stablecoin")
             
             return {
                 "account_balance": balance_value,
@@ -503,7 +509,7 @@ class E2ETestnetRunner:
         has_oracle = bool(self.oracle_contract)
         has_factory = bool(self.market_factory)
         has_vault = bool(self.collateral_vault)
-        has_usdc = bool(self.usdc_token)
+        has_stablecoin = bool(self.stablecoin_token)
         
         if not has_oracle:
             print("\n  ⚠️  Oracle contract not available")
@@ -551,7 +557,7 @@ class E2ETestnetRunner:
             print(f"  Test {i}: {status}")
         
         if balances:
-            print(f"\n  Account Balance: {balances.get('account_balance', 0) / 10**balances.get('decimals', 6):.2f} USDC")
+            print(f"\n  Account Balance: {balances.get('account_balance', 0) / 10**balances.get('decimals', 6):.2f} Stablecoin")
         
         if passed == total:
             print(f"\n  ✓ All tests passed!")

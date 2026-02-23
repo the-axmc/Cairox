@@ -48,11 +48,18 @@ trait ILMSRMarketMaker<TContractState> {
     ) -> u256;
 }
 
+#[starknet::interface]
+trait IOptimisticOracle<TContractState> {
+    fn get_market_status(self: @TContractState, market_id: felt252) -> felt252;
+    fn get_final_outcome(self: @TContractState, market_id: felt252) -> felt252;
+}
+
 #[starknet::contract]
 mod Market {
     use super::{
         IERC20Dispatcher, IERC20DispatcherTrait, IOutcomeTokenDispatcher, IOutcomeTokenDispatcherTrait,
         ILMSRMarketMakerDispatcher, ILMSRMarketMakerDispatcherTrait,
+        IOptimisticOracleDispatcher, IOptimisticOracleDispatcherTrait,
     };
     use starknet::ContractAddress;
     use starknet::storage::StoragePointerReadAccess;
@@ -81,12 +88,17 @@ mod Market {
         lmsr_market_maker: ContractAddress,
         b_param: u256,
 
+        // Oracle
+        oracle: ContractAddress,
+        market_id: felt252,
+
         // Market data
         question: felt252,
 
         // Circuit breaker
         trading_paused: bool,
         pause_reason: felt252,
+        locked: bool,
 
         // Supply tracking
         total_collateral: u256,
@@ -117,7 +129,9 @@ mod Market {
         yes_token: ContractAddress,
         no_token: ContractAddress,
         lmsr_market_maker: ContractAddress,
-        b_param: u256
+        b_param: u256,
+        oracle: ContractAddress,
+        market_id: felt252
     ) {
         let caller = starknet::get_caller_address();
         self.owner.write(caller);
@@ -129,10 +143,13 @@ mod Market {
         self.no_token.write(no_token);
         self.lmsr_market_maker.write(lmsr_market_maker);
         self.b_param.write(b_param);
+        self.oracle.write(oracle);
+        self.market_id.write(market_id);
         self.question.write(question);
 
         self.trading_paused.write(false);
         self.pause_reason.write(0);
+        self.locked.write(false);
 
         self.total_collateral.write(u256 { low: 0, high: 0 });
         self.yes_supply.write(u256 { low: 0, high: 0 });
@@ -143,7 +160,7 @@ mod Market {
         self.resolved_at.write(u256 { low: 0, high: 0 });
         let timestamp: u256 = starknet::get_block_timestamp().into();
         self.created_at.write(timestamp);
-        self.resolution_delay.write(u256 { low: 86400, high: 0 }); // 24 hours
+        self.resolution_delay.write(u256 { low: 0, high: 0 }); // default 0 for oracle-driven resolution
 
         self.max_trade_size.write(u256 { low: 1000000000000000000, high: 0 }); // 1e18
         self.min_trade_size.write(u256 { low: 1, high: 0 });
@@ -206,6 +223,8 @@ mod Market {
     // Buy tokens
     #[external(v0)]
     fn buy(ref self: ContractState, outcome: felt252, collateral_amount: u256, min_tokens: u256) -> u256 {
+        assert(!self.locked.read(), 'Reentrancy');
+        self.locked.write(true);
         // Check circuit breaker
         assert(!self.trading_paused.read(), 'Trading paused');
         assert(self.status.read() == STATE_ACTIVE, 'Market not active');
@@ -230,12 +249,6 @@ mod Market {
         );
         assert(tokens_out >= min_tokens, 'Slippage exceeded');
 
-        // Transfer collateral into the market
-        let collateral = IERC20Dispatcher { contract_address: self.collateral_token.read() };
-        let market_addr = starknet::get_contract_address();
-        let ok = collateral.transfer_from(buyer, market_addr, collateral_amount);
-        assert(ok, 'Collateral transfer failed');
-
         let total = self.total_collateral.read();
         self.total_collateral.write(total + collateral_amount);
 
@@ -251,19 +264,28 @@ mod Market {
             let token = IOutcomeTokenDispatcher { contract_address: self.no_token.read() };
             token.mint(buyer.into(), tokens_out);
         };
+
+        // Transfer collateral into the market
+        let collateral = IERC20Dispatcher { contract_address: self.collateral_token.read() };
+        let market_addr = starknet::get_contract_address();
+        let ok = collateral.transfer_from(buyer, market_addr, collateral_amount);
+        assert(ok, 'Collateral transfer failed');
         
         // Observability
         let trades = self.total_trades.read();
         self.total_trades.write(trades + u256 { low: 1, high: 0 });
         let volume = self.total_volume.read();
         self.total_volume.write(volume + collateral_amount);
-        
+
+        self.locked.write(false);
         tokens_out
     }
 
     // Sell tokens
     #[external(v0)]
     fn sell(ref self: ContractState, outcome: felt252, token_amount: u256, min_collateral: u256) -> u256 {
+        assert(!self.locked.read(), 'Reentrancy');
+        self.locked.write(true);
         assert(!self.trading_paused.read(), 'Trading paused');
         assert(self.status.read() == STATE_ACTIVE, 'Market not active');
         assert(outcome == OUTCOME_YES | outcome == OUTCOME_NO, 'Invalid outcome');
@@ -296,14 +318,14 @@ mod Market {
             token.burn(seller.into(), token_amount);
         };
 
+        let total = self.total_collateral.read();
+        assert(total >= collateral_out, 'Insufficient collateral');
+        self.total_collateral.write(total - collateral_out);
+
         // Transfer collateral back to seller
         let collateral = IERC20Dispatcher { contract_address: self.collateral_token.read() };
         let ok = collateral.transfer(seller, collateral_out);
         assert(ok, 'Collateral transfer failed');
-
-        let total = self.total_collateral.read();
-        assert(total >= collateral_out, 'Insufficient collateral');
-        self.total_collateral.write(total - collateral_out);
 
         // Observability
         let trades = self.total_trades.read();
@@ -311,6 +333,7 @@ mod Market {
         let volume = self.total_volume.read();
         self.total_volume.write(volume + collateral_out);
 
+        self.locked.write(false);
         collateral_out
     }
 
@@ -319,6 +342,8 @@ mod Market {
     fn resolve(ref self: ContractState, winning_outcome: felt252) {
         assert(self.status.read() == STATE_ACTIVE, 'Already resolved');
         assert(winning_outcome == OUTCOME_YES | winning_outcome == OUTCOME_NO, 'Invalid outcome');
+        let oracle_addr = self.oracle.read();
+        assert(oracle_addr.value == 0, 'Oracle set');
 
         let caller = starknet::get_caller_address();
         let owner = self.owner.read();
@@ -341,9 +366,30 @@ mod Market {
         self.resolved_at.write(now);
     }
 
+    // Resolve market from OptimisticOracle outcome
+    #[external(v0)]
+    fn resolve_from_oracle(ref self: ContractState) {
+        assert(self.status.read() == STATE_ACTIVE, 'Already resolved');
+        let oracle_addr = self.oracle.read();
+        assert(oracle_addr.value != 0, 'Oracle not set');
+        let oracle = IOptimisticOracleDispatcher { contract_address: oracle_addr };
+        let market_id = self.market_id.read();
+        let status = oracle.get_market_status(market_id);
+        assert(status == 2, 'Oracle not resolved');
+        let outcome = oracle.get_final_outcome(market_id);
+        assert(outcome == OUTCOME_YES | outcome == OUTCOME_NO, 'Invalid outcome');
+
+        self.status.write(STATE_RESOLVED);
+        self.winning_outcome.write(outcome);
+        let now: u256 = starknet::get_block_timestamp().into();
+        self.resolved_at.write(now);
+    }
+
     // Redeem winnings
     #[external(v0)]
     fn redeem(ref self: ContractState) -> u256 {
+        assert(!self.locked.read(), 'Reentrancy');
+        self.locked.write(true);
         assert(self.status.read() == STATE_RESOLVED, 'Not resolved');
 
         let user = starknet::get_caller_address();
@@ -376,6 +422,7 @@ mod Market {
             self.no_supply.write(supply - winnings);
         }
 
+        self.locked.write(false);
         winnings
     }
 
@@ -430,5 +477,13 @@ mod Market {
     #[external(v0)]
     fn get_owner(self: @ContractState) -> felt252 {
         self.owner.read().into()
+    }
+
+    #[external(v0)]
+    fn set_resolution_delay(ref self: ContractState, delay: u256) {
+        let current = self.owner.read();
+        let caller = starknet::get_caller_address();
+        assert(caller == current, 'Not owner');
+        self.resolution_delay.write(delay);
     }
 }

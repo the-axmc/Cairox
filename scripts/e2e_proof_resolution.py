@@ -311,7 +311,7 @@ class CairoxE2ETest:
                 outcome=outcome,
                 data_hash=data_hash,
                 data_uri=encode_felt(b"https://example.com/market-data-2"),
-                bond=100 * 10**6,  # 100 USDC with 6 decimals
+                bond=100 * 10**6,  # 100 stablecoin with 6 decimals
                 max_fee=int(1e16)
             )
             

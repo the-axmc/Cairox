@@ -71,7 +71,7 @@ fn test_valid_proof_fast_finalize() {
     // 2. Fast finalize succeeds
     // 3. Verify status = Resolved immediately
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     let market_id = 100;
     let outcome = 1; // YES
@@ -101,7 +101,7 @@ fn test_invalid_proof_reverts() {
     // 1. Propose with proof
     // 2. Fast finalize reverts (or prove invalid)
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     let market_id = 101;
     let outcome = 1;
@@ -132,7 +132,7 @@ fn test_optimistic_path_still_works() {
     // 2. Wait dispute window
     // 3. Finalize works (normal path)
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     let market_id = 102;
     let outcome = 1;
@@ -171,7 +171,7 @@ fn test_outcome_identical() {
     let data_hash = 0xabcdef1234567890;
     
     // Path 1: Propose with proof
-    let mut oracle_with_proof = OptimisticOracle::constructor();
+    let mut oracle_with_proof = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     let proof = sample_valid_proof();
     propose_with_proof(@mut oracle_with_proof, market_id, outcome, proof.span());
     
@@ -182,7 +182,7 @@ fn test_outcome_identical() {
     // Path 2: Propose without proof (optimistic)
     // We use a different market ID to avoid conflicts
     let market_id_2 = 104;
-    let mut oracle_optimistic = OptimisticOracle::constructor();
+    let mut oracle_optimistic = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     propose_optimistic(@mut oracle_optimistic, market_id_2, outcome);
     
     // Finalize via normal path (after dispute window)
@@ -203,7 +203,7 @@ fn test_outcome_identical() {
 fn test_proof_hash_stored() {
     // Verify that proof hash is stored during propose_with_proof
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     let market_id = 105;
     let outcome = 1;
@@ -224,7 +224,7 @@ fn test_proof_hash_stored() {
 fn test_fast_finalize_disabled() {
     // Test that fast_finalize reverts when disabled
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     // Disable fast-finalize (not possible in v0 contract directly)
     // In production, this would be configurable
@@ -247,7 +247,7 @@ fn test_fast_finalize_disabled() {
 fn test_fast_finalize_market_not_in_fast_path() {
     // Test that fast_finalize reverts for markets not in fast path
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     let market_id = 107;
     let outcome = 1;
@@ -264,7 +264,7 @@ fn test_fast_finalize_market_not_in_fast_path() {
 fn test_fast_finalize_before_dispute_window_not_needed() {
     // Test that fast_finalize works without waiting for dispute window
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     let market_id = 108;
     let outcome = 1;
@@ -286,7 +286,7 @@ fn test_fast_finalize_before_dispute_window_not_needed() {
 fn test_normal_finalize_on_fast_path_market() {
     // Test that normal finalize also works on fast-path markets
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     let market_id = 109;
     let outcome = 1;
@@ -392,7 +392,7 @@ fn test_resolution_verifier_get_proof_hash() {
 fn test_multiple_markets_different_paths() {
     // Test multiple markets using different paths
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     // Market 1: Fast path with proof
     let market_id_fast = 300;
@@ -421,7 +421,7 @@ fn test_multiple_markets_different_paths() {
 fn test_double_propose_same_market() {
     // Test that you cannot propose the same market twice
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     let market_id = 400;
     
@@ -440,7 +440,7 @@ fn test_double_propose_same_market() {
 fn test_fast_finalize_idempotent() {
     // Test that fast_finalize can only be called once
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     let market_id = 500;
     let outcome = 1;
@@ -485,7 +485,7 @@ fn test_resolution_verifier_hash_proof() {
 fn test_propose_with_empty_proof() {
     // Test that empty proof is rejected
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     let market_id = 700;
     let outcome = 1;
@@ -508,7 +508,7 @@ fn test_propose_with_empty_proof() {
 fn test_propose_with_too_large_proof() {
     // Test that too large proof is rejected
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     let market_id = 701;
     let outcome = 1;

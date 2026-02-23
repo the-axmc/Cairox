@@ -260,12 +260,12 @@ class OracleRunner:
         
         mock_data = {
             "date": time.strftime("%Y-%m-%d"),
-            "fees": 500000000000,  # 5e11 (500k USDC with 6 decimals)
+            "fees": 500000000000,  # 5e11 (500k stablecoin with 6 decimals)
             "fees_7d_avg": 480000000000,
         }
         
         print(f"  ✓ Fetched fees data:")
-        print(f"    - Fees (today): {mock_data['fees'] / 1e6:.2f} USDC")
+        print(f"    - Fees (today): {mock_data['fees'] / 1e6:.2f} Stablecoin")
         
         return mock_data
     
@@ -339,8 +339,8 @@ class OracleRunner:
         
         # Get fees value
         fees_value = fees_data.get('fees', 0)
-        print(f"  Fees Value: {fees_value / 1e6:.2f} USDC")
-        print(f"  Threshold: {FEES_THRESHOLD / 1e6:.2f} USDC")
+        print(f"  Fees Value: {fees_value / 1e6:.2f} Stablecoin")
+        print(f"  Threshold: {FEES_THRESHOLD / 1e6:.2f} Stablecoin")
         
         # Compare fees to threshold
         threshold_passed = fees_value >= FEES_THRESHOLD
@@ -368,7 +368,7 @@ class OracleRunner:
         try:
             # Build proposal data
             data_uri = "ipfs://resolution-data"
-            bond = 100 * 10**6  # 100 USDC
+            bond = 100 * 10**6  # 100 stablecoin
             
             print(f"  Market ID: {market_id}")
             print(f"  Outcome: {outcome} (0=YES, 1=NO)")

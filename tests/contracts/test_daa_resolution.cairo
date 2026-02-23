@@ -44,7 +44,7 @@ fn txcount_threshold() -> u128 {
 }
 
 fn fees_threshold() -> u128 {
-    1000000000000u128  // 1e12 fees (1000 USDC with 6 decimals)
+    1000000000000u128  // 1e12 fees (1000 stablecoin with 6 decimals)
 }
 
 // Market ID helpers
@@ -75,7 +75,7 @@ const RESOLVED: felt252 = 2;
 func test_daa_above_threshold_resolves_yes() {
     // Test that when DAA >= threshold, market resolves to YES
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     let mut verifier = ResolutionVerifier::constructor();
     
     let market_id = daa_market_id();
@@ -131,7 +131,7 @@ func test_daa_above_threshold_resolves_yes() {
 func test_daa_below_threshold_resolves_no() {
     // Test that when DAA < threshold, market resolves to NO
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     let market_id = daa_market_id();
     let outcome = OUTCOME_NO;  // NO = 1
@@ -176,7 +176,7 @@ func test_daa_below_threshold_resolves_no() {
 func test_daa_resolution_with_data_verification() {
     // Test the complete DAA resolution flow with data verification
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     let mut verifier = ResolutionVerifier::constructor();
     
     let market_id = daa_market_id();
@@ -231,7 +231,7 @@ func test_daa_resolution_with_data_verification() {
 func test_txcount_resolution() {
     // Test that when txcount >= threshold, market resolves to YES
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     let market_id = txcount_market_id();
     let txcount_value = txcount_threshold() + 100;  // txcount is above threshold
@@ -281,7 +281,7 @@ func test_txcount_resolution() {
 func test_txcount_below_threshold_resolves_no() {
     // Test that when txcount < threshold, market resolves to NO
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     let market_id = txcount_market_id();
     let txcount_value = txcount_threshold() - 100;  // txcount is below threshold
@@ -331,7 +331,7 @@ func test_txcount_below_threshold_resolves_no() {
 func test_fees_resolution() {
     // Test that when fees >= threshold, market resolves to YES
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     let market_id = fees_market_id();
     let fees_value = fees_threshold() + 1_000_000_000_000u128;  // fees above threshold
@@ -381,7 +381,7 @@ func test_fees_resolution() {
 func test_fees_below_threshold_resolves_no() {
     // Test that when fees < threshold, market resolves to NO
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     let market_id = fees_market_id();
     let fees_value = fees_threshold() - 1_000_000_000_000u128;  // fees below threshold
@@ -431,7 +431,7 @@ func test_fees_below_threshold_resolves_no() {
 func test_daa_verify_function() {
     // Test the DAA verification function
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     let market_id = daa_market_id();
     let daa_above = daa_threshold() * 2;
@@ -470,7 +470,7 @@ func test_threshold_constants() {
     // TXCount threshold should be 1000
     assert(txcount_threshold() == 1000, 'TXCount threshold should be 1000');
     
-    // Fees threshold should be 1e12 (1000 USDC with 6 decimals)
+    // Fees threshold should be 1e12 (1000 stablecoin with 6 decimals)
     assert(fees_threshold() == 1_000_000_000_000u128, 'Fees threshold should be 1e12');
 }
 

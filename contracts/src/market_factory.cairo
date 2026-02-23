@@ -28,6 +28,7 @@ mod MarketFactory {
         outcome_token_class_hash: felt252,
         lmsr_market_maker: ContractAddress,
         b_param: u256,
+        oracle: ContractAddress,
         market_count: u256,
         // market_id -> market info
         markets: Map<u256, ContractAddress>,
@@ -40,7 +41,8 @@ mod MarketFactory {
         market_class_hash: felt252,
         outcome_token_class_hash: felt252,
         lmsr_market_maker: ContractAddress,
-        b_param: u256
+        b_param: u256,
+        oracle: ContractAddress
     ) {
         let caller = starknet::get_caller_address();
         self.owner.write(caller);
@@ -49,6 +51,7 @@ mod MarketFactory {
         self.outcome_token_class_hash.write(outcome_token_class_hash);
         self.lmsr_market_maker.write(lmsr_market_maker);
         self.b_param.write(b_param);
+        self.oracle.write(oracle);
         self.market_count.write(u256 { low: 0, high: 0 });
     }
 
@@ -96,6 +99,8 @@ mod MarketFactory {
         let b = self.b_param.read();
         market_calldata.append(b.low.into());
         market_calldata.append(b.high.into());
+        market_calldata.append(self.oracle.read().into());
+        market_calldata.append(id.low.into());
         let market_salt: felt252 = (id.low + 2_u128).into();
         let (market_addr, _) = deploy_syscall(
             market_class_hash,

@@ -46,7 +46,7 @@ except ImportError:
 
 # Constants
 FIXED_POINT_PRECISION = 10**18
-COLLATERAL_TOKEN_NAME = "USDC"
+COLLATERAL_TOKEN_NAME = "cUSD"
 YES_TOKEN_NAME = "YES"
 NO_TOKEN_NAME = "NO"
 MARKET_ID = "market_1"
@@ -198,7 +198,7 @@ async def main():
         bob.contract_address,
         10000 * FIXED_POINT_PRECISION,
     ).invoke()
-    print("✓ Alice and Bob each have 10,000 USDC")
+    print("✓ Alice and Bob each have 10,000 cUSD")
 
     # ==================== E2E Trading Sequence ====================
 
@@ -218,14 +218,14 @@ async def main():
         collateral_vault.contract_address,
         collateral_amount,
     ).invoke(caller_address=alice.contract_address)
-    print(f"✓ Alice approved {collateral_amount / FIXED_POINT_PRECISION:.2f} USDC for deposit")
+    print(f"✓ Alice approved {collateral_amount / FIXED_POINT_PRECISION:.2f} cUSD for deposit")
 
     # Deposit collateral
     await collateral_vault.deposit(
         alice.contract_address,
         collateral_amount,
     ).invoke(caller_address=collateral_vault.contract_address)
-    print(f"✓ Alice deposited {collateral_amount / FIXED_POINT_PRECISION:.2f} USDC")
+    print(f"✓ Alice deposited {collateral_amount / FIXED_POINT_PRECISION:.2f} cUSD")
 
     # Mint complete set (1 YES + 1 NO)
     # In practice, this would be handled by the market factory or LMSR

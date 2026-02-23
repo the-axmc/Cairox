@@ -44,6 +44,10 @@ fn no_token_address() -> ContractAddress {
     ContractAddress::from(0x723456789012345678901234567890123456789012345678901234567890123_u128)
 }
 
+fn oracle_address() -> ContractAddress {
+    ContractAddress::from(0x823456789012345678901234567890123456789012345678901234567890123_u128)
+}
+
 #[test]
 fn test_mint_complete_set() {
     // Setup: Initialize market
@@ -53,7 +57,9 @@ fn test_mint_complete_set() {
         yes_token: yes_token_address(),
         no_token: no_token_address(),
         lmsr_market_maker: lmsr_address(),
-        b_param: u256_value(1000)
+        b_param: u256_value(1000),
+        oracle: oracle_address(),
+        market_id: 1
     );
     
     // Create the market with factory
@@ -94,7 +100,9 @@ fn test_redeem_winning() {
         yes_token: yes_token_address(),
         no_token: no_token_address(),
         lmsr_market_maker: lmsr_address(),
-        b_param: u256_value(1000)
+        b_param: u256_value(1000),
+        oracle: oracle_address(),
+        market_id: 2
     );
     
     // Mint complete set first
@@ -121,7 +129,9 @@ fn test_redeem_void() {
         yes_token: yes_token_address(),
         no_token: no_token_address(),
         lmsr_market_maker: lmsr_address(),
-        b_param: u256_value(1000)
+        b_param: u256_value(1000),
+        oracle: oracle_address(),
+        market_id: 3
     );
     
     // Mint complete set
@@ -147,7 +157,9 @@ fn test_insolvency_prevention() {
         yes_token: yes_token_address(),
         no_token: no_token_address(),
         lmsr_market_maker: lmsr_address(),
-        b_param: u256_value(1000)
+        b_param: u256_value(1000),
+        oracle: oracle_address(),
+        market_id: 4
     );
     
     // Only deposit $100, but try to mint complete set for $200 worth of tokens
@@ -177,7 +189,9 @@ fn test_multiple_users() {
         yes_token: yes_token_address(),
         no_token: no_token_address(),
         lmsr_market_maker: lmsr_address(),
-        b_param: u256_value(1000)
+        b_param: u256_value(1000),
+        oracle: oracle_address(),
+        market_id: 5
     );
     
     // User 1 deposits $100 and gets 100 YES + 100 NO
@@ -202,7 +216,9 @@ fn test_outcome_token_balance() {
         yes_token: yes_token_address(),
         no_token: no_token_address(),
         lmsr_market_maker: lmsr_address(),
-        b_param: u256_value(1000)
+        b_param: u256_value(1000),
+        oracle: oracle_address(),
+        market_id: 6
     );
     
     // Mint complete set
@@ -229,7 +245,9 @@ fn test_cannot_redeem_before_resolution() {
         yes_token: yes_token_address(),
         no_token: no_token_address(),
         lmsr_market_maker: lmsr_address(),
-        b_param: u256_value(1000)
+        b_param: u256_value(1000),
+        oracle: oracle_address(),
+        market_id: 7
     );
     
     // Mint complete set
@@ -251,7 +269,9 @@ fn test_cannot_redeem_before_void() {
         yes_token: yes_token_address(),
         no_token: no_token_address(),
         lmsr_market_maker: lmsr_address(),
-        b_param: u256_value(1000)
+        b_param: u256_value(1000),
+        oracle: oracle_address(),
+        market_id: 8
     );
     
     // Mint complete set

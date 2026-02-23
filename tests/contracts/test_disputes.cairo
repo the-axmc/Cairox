@@ -52,7 +52,7 @@ fn min_dispute_bond() -> u256_lib::U256 {
 #[should_revert]
 func test_dispute_blocks_finalize() {
     // 1. Propose market with bond
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     let market_id = market_id_1();
     let outcome = s'YES';
@@ -90,7 +90,7 @@ func test_dispute_blocks_finalize() {
 #[test]
 func test_bond_transfer() {
     // Setup: Oracle and arbitration contracts
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     let _arbitration = Arbitration::constructor();
     
     let market_id = market_id_1();
@@ -145,7 +145,7 @@ func test_bond_transfer() {
 #[test]
 func test_arbitration_resolution() {
     // 1. Propose
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     let market_id = market_id_1();
     let outcome = s'YES';
@@ -195,7 +195,7 @@ func test_arbitration_resolution() {
 #[test]
 func test_non_disputed_finalize() {
     // 1. Propose with bond
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     let market_id = market_id_1();
     let outcome = s'YES';
@@ -243,7 +243,7 @@ func test_non_disputed_finalize() {
 func test_disputed_proposal_cannot_be_finalized() {
     // Test that a disputed proposal cannot be finalized without arbitration
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     let market_id = market_id_1();
     let outcome = s'YES';
@@ -274,7 +274,7 @@ func test_disputed_proposal_cannot_be_finalized() {
 func test_non_disputed_finalizes_after_window() {
     // Test the full flow of a non-disputed proposal
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     let market_id = market_id_1();
     let outcome = s'YES';
@@ -310,7 +310,7 @@ func test_non_disputed_finalizes_after_window() {
 func test_arbitration_only_by_arbiter() {
     // Test that only the arbiter can resolve disputes
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     let market_id = market_id_1();
     let outcome = s'YES';
@@ -349,7 +349,7 @@ func test_arbitration_only_by_arbiter() {
 func test_cannot_dispute_already_disputed() {
     // Test that a market cannot be disputed multiple times
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     let market_id = market_id_1();
     let outcome = s'YES';
@@ -381,7 +381,7 @@ func test_cannot_dispute_already_disputed() {
 func test_dispute_wrong_state() {
     // Test that dispute fails if market is not in Proposed state
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     let market_id = market_id_1();
     let outcome = s'YES';
@@ -420,7 +420,7 @@ func test_dispute_wrong_state() {
 func test_propose_wrong_state() {
     // Test that proposing an already-proposed market fails
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     let market_id = market_id_1();
     let outcome = s'YES';
@@ -454,7 +454,7 @@ func test_propose_wrong_state() {
 func test_finalize_wrong_state() {
     // Test that finalize fails for non-existent market
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     let market_id = s'nonexistent';
     
@@ -469,7 +469,7 @@ func test_finalize_wrong_state() {
 func test_propose_bond_too_low() {
     // Test that propose fails if bond is below minimum
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     let market_id = market_id_1();
     let outcome = s'YES';
@@ -492,7 +492,7 @@ func test_propose_bond_too_low() {
 func test_dispute_bond_too_low() {
     // Test that dispute fails if bond is below minimum
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     let market_id = market_id_1();
     let outcome = s'YES';
@@ -520,7 +520,7 @@ func test_dispute_bond_too_low() {
 func test_arbitration_outcome_validation() {
     // Test that arbitration outcome is stored correctly
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     let market_id = market_id_1();
     let proposed_outcome = s'YES';

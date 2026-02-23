@@ -5,6 +5,7 @@ mod resolution_verifier;
 mod optimistic_oracle;
 mod collateral_vault;
 mod outcome_token;
+mod stablecoin;
 mod market_factory;
 mod market;
 mod lmsr_market_maker;
