@@ -1,3 +1,4 @@
+mod launch_config;
 mod oracle;
 mod arbitration;
 mod resolution_verifier;
