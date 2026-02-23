@@ -53,8 +53,9 @@ class StarknetInterface:
         self.starkli_path = starkli_path
         
         # Contract addresses (defaults - should be overridden)
-        self.oracle_address = os.getenv("ORACLE_CONTRACT_ADDRESS")
-        self.calculator_address = os.getenv("CALCULATOR_CONTRACT_ADDRESS")
+        self.oracle_address = self._normalize_address(os.getenv("ORACLE_CONTRACT_ADDRESS"))
+        self.calculator_address = self._normalize_address(os.getenv("CALCULATOR_CONTRACT_ADDRESS"))
+        self.verifier_address = self._normalize_address(os.getenv("RESOLUTION_VERIFIER_ADDRESS"))
         
         # Initialize starknet.py client if available
         self.client = None
@@ -73,7 +74,7 @@ class StarknetInterface:
             if self.account_address and self.private_key:
                 self.account = Account(
                     client=self.client,
-                    address=self.account_address,
+                    address=self._normalize_address(self.account_address),
                     key_pair=self.private_key,
                     chain=self._get_chain_id(),
                 )
@@ -84,10 +85,13 @@ class StarknetInterface:
     
     def _get_node_url(self) -> str:
         """Get RPC node URL based on network."""
+        env_url = os.getenv("STARKNET_RPC_URL")
+        if env_url:
+            return env_url
         urls = {
             "goerli": "https://goerli.gateway.fm",
             "mainnet": "https://starknet-mainnet.public.blastapi.io",
-            "sepolia": "https://.sepolia.starknet_gateway.io",
+            "sepolia": "https://starknet-sepolia.public.blastapi.io/rpc/v0_8",
             "localhost": "http://127.0.0.1:5050",
         }
         return urls.get(self.network, urls["goerli"])
@@ -132,6 +136,52 @@ class StarknetInterface:
             )
         except subprocess.TimeoutExpired:
             raise RuntimeError("starkli command timed out")
+
+    def _normalize_address(self, value: Optional[Union[str, int]]) -> Optional[int]:
+        """Normalize an address value into an int."""
+        if value is None:
+            return None
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str):
+            if value.startswith("0x"):
+                return int(value, 16)
+            if value.isdigit():
+                return int(value)
+        return None
+
+    def _addr_str(self, value: Optional[Union[str, int]]) -> Optional[str]:
+        """Format an address for CLI usage."""
+        if value is None:
+            return None
+        if isinstance(value, int):
+            return hex(value)
+        return value
+
+    def _market_id_to_felt(self, market_id: str) -> int:
+        """Convert a market_id string into a felt252."""
+        if isinstance(market_id, int):
+            return market_id
+        if isinstance(market_id, str) and market_id.startswith("0x"):
+            return int(market_id, 16)
+        if isinstance(market_id, str) and market_id.isdigit():
+            return int(market_id)
+        # Default: pack UTF-8 into felt (up to 31 bytes)
+        return int.from_bytes(str(market_id).encode()[:31], "big")
+
+    def _outcome_to_felt(self, outcome: str) -> int:
+        """Map outcome string to felt."""
+        if outcome in ("YES", "yes", "Yes", "1", 1):
+            return 1
+        if outcome in ("NO", "no", "No", "0", 0):
+            return 0
+        return int.from_bytes(str(outcome).encode()[:31], "big")
+
+    def _to_u256(self, value: int) -> list:
+        """Encode a Python int as u256 [low, high]."""
+        low = value & ((1 << 128) - 1)
+        high = value >> 128
+        return [low, high]
     
     def get_balance(self, address: Optional[str] = None) -> float:
         """
@@ -186,6 +236,8 @@ class StarknetInterface:
         outcome: str,
         data_hash: str,
         data_uri: str,
+        bond: int,
+        proof: Optional[list] = None,
     ) -> Dict[str, Any]:
         """
         Propose an outcome for a market.
@@ -202,10 +254,14 @@ class StarknetInterface:
         if not self.oracle_address:
             raise ValueError("Oracle contract address not set")
         
+        if proof is not None:
+            if self.account:
+                return self._propose_with_proof_starknet_py(market_id, outcome, data_hash, proof)
+            return self._propose_with_proof_starkli(market_id, outcome, data_hash, proof)
+
         if self.account:
-            return self._propose_starknet_py(market_id, outcome, data_hash, data_uri)
-        else:
-            return self._propose_starkli(market_id, outcome, data_hash, data_uri)
+            return self._propose_starknet_py(market_id, outcome, data_hash, data_uri, bond)
+        return self._propose_starkli(market_id, outcome, data_hash, data_uri, bond)
     
     def _propose_starknet_py(
         self,
@@ -213,34 +269,33 @@ class StarknetInterface:
         outcome: str,
         data_hash: str,
         data_uri: str,
+        bond: int,
     ) -> Dict[str, Any]:
         """Propose using starknet.py."""
-        from starknet_py.utils.crypto.facade import encode_avm
-        from starknet_py.utils.transaction_helpers import broadcast_tx
-        
-        # Convert outcome to felt (simplified - adjust for your contract's encoding)
-        outcome_felt = encode_avm(outcome)
+        market_id_felt = self._market_id_to_felt(market_id)
+        outcome_felt = self._outcome_to_felt(outcome)
         data_hash_felt = int(data_hash, 16)
-        # For data_uri, use a hash or encode as felt
         uri_hash = int.from_bytes(data_uri.encode()[:31], 'big')
-        
-        # Execute the propose function
+        bond_u256 = self._to_u256(bond)
+
         call = Call(
             to_addr=self.oracle_address,
             selector="propose",
             calldata=[
-                int(market_id),
+                market_id_felt,
                 outcome_felt,
                 data_hash_felt,
                 uri_hash,
+                bond_u256[0],
+                bond_u256[1],
             ],
         )
-        
+
         try:
-            tx = asyncio.run(broadcast_tx(self.account, [call], max_fee=int(1e16)))
+            tx = asyncio.run(self.account.execute_v1(calls=[call], max_fee=int(1e16)))
             return {
                 "success": True,
-                "transaction_hash": hex(tx.hash),
+                "transaction_hash": hex(tx.transaction_hash),
                 "status": "pending",
             }
         except Exception as e:
@@ -255,31 +310,106 @@ class StarknetInterface:
         outcome: str,
         data_hash: str,
         data_uri: str,
+        bond: int,
     ) -> Dict[str, Any]:
         """Propose using starkli CLI."""
-        # Encode values for starkli
-        outcome_bytes = outcome.encode()[:31].ljust(31, b'\0')
-        outcome_felt = int.from_bytes(outcome_bytes, 'big')
+        outcome_felt = self._outcome_to_felt(outcome)
         data_hash_felt = int(data_hash, 16)
         uri_hash = int.from_bytes(data_uri.encode()[:31], 'big')
+        bond_u256 = self._to_u256(bond)
         
         # Build command
         # This assumes the oracle contract has a propose function with signature:
-        # propose(market_id: felt, outcome: felt, data_hash: felt, data_uri: felt)
+        # propose(market_id: felt, outcome: felt, data_hash: felt, data_uri: felt, bond: u256)
         cmd = [
             "invoke",
-            self.oracle_address,
+            self._addr_str(self.oracle_address),
             "propose",
-            str(int(market_id)),
+            str(self._market_id_to_felt(market_id)),
             str(outcome_felt),
             str(data_hash_felt),
             str(uri_hash),
+            str(bond_u256[0]),
+            str(bond_u256[1]),
         ]
         
         # Add fee arguments if needed
         if self.account_address:
             cmd.extend(["--account", self.account_address])
         
+        try:
+            output = self._call_starkli(cmd)
+            tx_hash = output.split("Transaction hash: ")[-1].strip() if "Transaction hash:" in output else output
+            return {
+                "success": True,
+                "transaction_hash": tx_hash,
+                "status": "pending",
+                "raw_output": output,
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+            }
+
+    def _propose_with_proof_starknet_py(
+        self,
+        market_id: str,
+        outcome: str,
+        data_hash: str,
+        proof: list,
+    ) -> Dict[str, Any]:
+        """Propose with proof using starknet.py."""
+        market_id_felt = self._market_id_to_felt(market_id)
+        outcome_felt = self._outcome_to_felt(outcome)
+        data_hash_felt = int(data_hash, 16)
+        proof_calldata = [int(p) for p in proof]
+
+        call = Call(
+            to_addr=self.oracle_address,
+            selector="propose_with_proof",
+            calldata=[market_id_felt, outcome_felt, data_hash_felt, *proof_calldata],
+        )
+
+        try:
+            tx = asyncio.run(self.account.execute_v1(calls=[call], max_fee=int(1e16)))
+            return {
+                "success": True,
+                "transaction_hash": hex(tx.transaction_hash),
+                "status": "pending",
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+            }
+
+    def _propose_with_proof_starkli(
+        self,
+        market_id: str,
+        outcome: str,
+        data_hash: str,
+        proof: list,
+    ) -> Dict[str, Any]:
+        """Propose with proof using starkli CLI."""
+        market_id_felt = self._market_id_to_felt(market_id)
+        outcome_felt = self._outcome_to_felt(outcome)
+        data_hash_felt = int(data_hash, 16)
+        proof_args = [str(int(p)) for p in proof]
+
+        cmd = [
+            "invoke",
+            self._addr_str(self.oracle_address),
+            "propose_with_proof",
+            str(market_id_felt),
+            str(outcome_felt),
+            str(data_hash_felt),
+            *proof_args,
+        ]
+
+        if self.account_address:
+            cmd.extend(["--account", self.account_address])
+
         try:
             output = self._call_starkli(cmd)
             tx_hash = output.split("Transaction hash: ")[-1].strip() if "Transaction hash:" in output else output
@@ -318,14 +448,14 @@ class StarknetInterface:
         call = Call(
             to_addr=self.oracle_address,
             selector="finalize",
-            calldata=[int(market_id)],
+            calldata=[self._market_id_to_felt(market_id)],
         )
         
         try:
-            tx = asyncio.run(broadcast_tx(self.account, [call], max_fee=int(1e16)))
+            tx = asyncio.run(self.account.execute_v1(calls=[call], max_fee=int(1e16)))
             return {
                 "success": True,
-                "transaction_hash": hex(tx.hash),
+                "transaction_hash": hex(tx.transaction_hash),
                 "status": "pending",
             }
         except Exception as e:
@@ -338,9 +468,9 @@ class StarknetInterface:
         """Finalize using starkli CLI."""
         cmd = [
             "invoke",
-            self.oracle_address,
+            self._addr_str(self.oracle_address),
             "finalize",
-            str(int(market_id)),
+            str(self._market_id_to_felt(market_id)),
         ]
         
         if self.account_address:
@@ -390,7 +520,7 @@ class StarknetInterface:
             )
             
             status = asyncio.run(
-                contract.functions["getMarketStatus"].call(int(market_id))
+                contract.functions["get_market_status"].call(self._market_id_to_felt(market_id))
             )
             
             return {
@@ -403,15 +533,40 @@ class StarknetInterface:
                 "success": False,
                 "error": str(e),
             }
+
+    def requires_proof(self, market_id: str) -> bool:
+        """Check if a market requires proof via the ResolutionVerifier."""
+        if not self.verifier_address:
+            return False
+        if not self.client:
+            return False
+        try:
+            from starknet_py.contract import Contract
+            contract = Contract(
+                address=self.verifier_address,
+                abi=self._get_verifier_abi(),
+                client=self.client
+            )
+            result = asyncio.run(
+                contract.functions["requires_proof"].call(self._market_id_to_felt(market_id))
+            )
+            # starknet_py returns named tuple or int
+            if isinstance(result, dict):
+                return bool(result.get("value", False))
+            if hasattr(result, "value"):
+                return bool(result.value)
+            return bool(result)
+        except Exception:
+            return False
     
     def _get_status_starkli(self, market_id: str) -> Dict[str, Any]:
         """Get status using starkli CLI."""
         try:
             output = self._call_starkli([
                 "call",
-                self.oracle_address,
-                "getMarketStatus",
-                str(int(market_id)),
+                self._addr_str(self.oracle_address),
+                "get_market_status",
+                str(self._market_id_to_felt(market_id)),
             ])
             
             return {
@@ -435,6 +590,18 @@ class StarknetInterface:
                     {"name": "outcome", "type": "felt"},
                     {"name": "data_hash", "type": "felt"},
                     {"name": "data_uri", "type": "felt"},
+                    {"name": "bond", "type": "u256"},
+                ],
+                "outputs": [],
+            },
+            {
+                "name": "propose_with_proof",
+                "type": "function",
+                "inputs": [
+                    {"name": "market_id", "type": "felt"},
+                    {"name": "outcome", "type": "felt"},
+                    {"name": "data_hash", "type": "felt"},
+                    {"name": "zk_proof", "type": "felt*"},
                 ],
                 "outputs": [],
             },
@@ -447,13 +614,46 @@ class StarknetInterface:
                 "outputs": [],
             },
             {
-                "name": "getMarketStatus",
+                "name": "fast_finalize",
+                "type": "function",
+                "inputs": [
+                    {"name": "market_id", "type": "felt"},
+                ],
+                "outputs": [],
+            },
+            {
+                "name": "get_market_status",
                 "type": "function",
                 "inputs": [
                     {"name": "market_id", "type": "felt"},
                 ],
                 "outputs": [
                     {"name": "status", "type": "felt"},
+                ],
+            },
+            {
+                "name": "get_final_outcome",
+                "type": "function",
+                "inputs": [
+                    {"name": "market_id", "type": "felt"},
+                ],
+                "outputs": [
+                    {"name": "outcome", "type": "felt"},
+                ],
+            },
+        ]
+
+    def _get_verifier_abi(self) -> list:
+        """Get ResolutionVerifier ABI (simplified)."""
+        return [
+            {
+                "name": "requires_proof",
+                "type": "function",
+                "inputs": [
+                    {"name": "market_id", "type": "felt"},
+                ],
+                "outputs": [
+                    {"name": "value", "type": "bool"},
                 ],
             },
         ]

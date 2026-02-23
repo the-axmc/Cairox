@@ -17,6 +17,14 @@ fn other_address() -> ContractAddress {
     ContractAddress::from(0x333333333333333333333333333333333333333333333333333333333333333_u128)
 }
 
+fn zero_address() -> ContractAddress {
+    ContractAddress { value: 0 }
+}
+
+fn price_feed_type_oracle() -> u8 {
+    1
+}
+
 fn u256_value(amount: u128) -> u256_lib::U256 {
     u256_lib::U256 { low: amount, high: 0 }
 }
@@ -26,16 +34,18 @@ fn test_constructor_and_metadata() {
     let owner = owner_address();
     let recipient = user_address();
     let token = Stablecoin::constructor(
-        name: s'cUSD',
-        symbol: s'cUSD',
+        name: s'cEUR',
+        symbol: s'cEUR',
         decimals: 6,
         owner: owner,
         initial_supply: u256_value(1_000_000),
-        recipient: recipient
+        recipient: recipient,
+        price_feed: zero_address(),
+        price_feed_type: price_feed_type_oracle()
     );
 
-    assert(token.name() == s'cUSD', 'Name should match');
-    assert(token.symbol() == s'cUSD', 'Symbol should match');
+    assert(token.name() == s'cEUR', 'Name should match');
+    assert(token.symbol() == s'cEUR', 'Symbol should match');
     assert(token.decimals() == 6, 'Decimals should match');
 
     let balance = token.balance_of(account: recipient);
@@ -47,12 +57,14 @@ fn test_owner_can_mint_and_burn() {
     let owner = owner_address();
     let recipient = user_address();
     let mut token = Stablecoin::constructor(
-        name: s'cUSD',
-        symbol: s'cUSD',
+        name: s'cEUR',
+        symbol: s'cEUR',
         decimals: 6,
         owner: owner,
         initial_supply: u256_value(0),
-        recipient: recipient
+        recipient: recipient,
+        price_feed: zero_address(),
+        price_feed_type: price_feed_type_oracle()
     );
 
     // Mint as owner
@@ -72,12 +84,14 @@ fn test_transfer_and_transfer_from() {
     let owner = owner_address();
     let recipient = user_address();
     let mut token = Stablecoin::constructor(
-        name: s'cUSD',
-        symbol: s'cUSD',
+        name: s'cEUR',
+        symbol: s'cEUR',
         decimals: 6,
         owner: owner,
         initial_supply: u256_value(100),
-        recipient: recipient
+        recipient: recipient,
+        price_feed: zero_address(),
+        price_feed_type: price_feed_type_oracle()
     );
 
     // Transfer from recipient to other
@@ -106,4 +120,24 @@ fn test_transfer_and_transfer_from() {
     let other_balance_after = token.balance_of(account: other_address());
     assert(user_balance_after.low == 50, 'User balance should be 50');
     assert(other_balance_after.low == 50, 'Other balance should be 50');
+}
+
+#[test]
+#[should_revert]
+fn test_price_feed_required() {
+    let owner = owner_address();
+    let recipient = user_address();
+    let token = Stablecoin::constructor(
+        name: s'cEUR',
+        symbol: s'cEUR',
+        decimals: 6,
+        owner: owner,
+        initial_supply: u256_value(0),
+        recipient: recipient,
+        price_feed: zero_address(),
+        price_feed_type: price_feed_type_oracle()
+    );
+
+    // Should revert because no price feed is configured
+    token.get_latest_price();
 }

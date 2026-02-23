@@ -2,9 +2,25 @@
 
 use starknet::ContractAddress;
 
+#[starknet::interface]
+trait IChainlinkAggregator<TContractState> {
+    fn latest_round_data(self: @TContractState) -> (u256, u256, u256, u256, u256);
+    fn decimals(self: @TContractState) -> u8;
+}
+
+#[starknet::interface]
+trait IPriceOracle<TContractState> {
+    fn get_price(self: @TContractState) -> u256;
+    fn get_decimals(self: @TContractState) -> u8;
+    fn get_updated_at(self: @TContractState) -> u256;
+}
+
 #[starknet::contract]
 mod Stablecoin {
-    use super::ContractAddress;
+    use super::{
+        ContractAddress, IChainlinkAggregatorDispatcher, IChainlinkAggregatorDispatcherTrait,
+        IPriceOracleDispatcher, IPriceOracleDispatcherTrait,
+    };
     use starknet::storage::Map;
     use starknet::storage::StoragePointerReadAccess;
     use starknet::storage::StoragePointerWriteAccess;
@@ -15,10 +31,15 @@ mod Stablecoin {
         symbol: felt252,
         decimals: u8,
         owner: ContractAddress,
+        price_feed: ContractAddress,
+        price_feed_type: u8,
         total_supply: u256,
         balances: Map<ContractAddress, u256>,
         allowances: Map<(ContractAddress, ContractAddress), u256>,
     }
+
+    const PRICE_FEED_CHAINLINK: u8 = 0;
+    const PRICE_FEED_ORACLE: u8 = 1;
 
     #[constructor]
     fn constructor(
@@ -29,11 +50,19 @@ mod Stablecoin {
         owner: ContractAddress,
         initial_supply: u256,
         recipient: ContractAddress,
+        price_feed: ContractAddress,
+        price_feed_type: u8,
     ) {
+        assert(
+            price_feed_type == PRICE_FEED_CHAINLINK | price_feed_type == PRICE_FEED_ORACLE,
+            'Invalid feed type'
+        );
         self.name.write(name);
         self.symbol.write(symbol);
         self.decimals.write(decimals);
         self.owner.write(owner);
+        self.price_feed.write(price_feed);
+        self.price_feed_type.write(price_feed_type);
         self.total_supply.write(initial_supply);
         self.balances.write(recipient, initial_supply);
     }
@@ -146,5 +175,72 @@ mod Stablecoin {
     #[external(v0)]
     fn get_owner(self: @ContractState) -> ContractAddress {
         self.owner.read()
+    }
+
+    #[external(v0)]
+    fn set_price_feed(ref self: ContractState, feed: ContractAddress, feed_type: u8) {
+        let caller = starknet::get_caller_address();
+        let owner = self.owner.read();
+        assert(caller == owner, 'Not owner');
+        assert(
+            feed_type == PRICE_FEED_CHAINLINK | feed_type == PRICE_FEED_ORACLE,
+            'Invalid feed type'
+        );
+        self.price_feed.write(feed);
+        self.price_feed_type.write(feed_type);
+    }
+
+    #[external(v0)]
+    fn get_price_feed(self: @ContractState) -> ContractAddress {
+        self.price_feed.read()
+    }
+
+    #[external(v0)]
+    fn get_price_feed_type(self: @ContractState) -> u8 {
+        self.price_feed_type.read()
+    }
+
+    #[external(v0)]
+    fn get_latest_price(self: @ContractState) -> u256 {
+        let feed = self.price_feed.read();
+        assert(feed.value != 0, 'No price feed');
+        let feed_type = self.price_feed_type.read();
+        if feed_type == PRICE_FEED_CHAINLINK {
+            let aggregator = IChainlinkAggregatorDispatcher { contract_address: feed };
+            let (_, answer, _, _, _) = aggregator.latest_round_data();
+            answer
+        } else {
+            let oracle = IPriceOracleDispatcher { contract_address: feed };
+            oracle.get_price()
+        }
+    }
+
+    #[external(v0)]
+    fn get_price_decimals(self: @ContractState) -> u8 {
+        let feed = self.price_feed.read();
+        assert(feed.value != 0, 'No price feed');
+        let feed_type = self.price_feed_type.read();
+        if feed_type == PRICE_FEED_CHAINLINK {
+            let aggregator = IChainlinkAggregatorDispatcher { contract_address: feed };
+            aggregator.decimals()
+        } else {
+            let oracle = IPriceOracleDispatcher { contract_address: feed };
+            oracle.get_decimals()
+        }
+    }
+
+    #[external(v0)]
+    fn get_price_updated_at(self: @ContractState) -> u256 {
+        let feed = self.price_feed.read();
+        assert(feed.value != 0, 'No price feed');
+        let feed_type = self.price_feed_type.read();
+        if feed_type == PRICE_FEED_CHAINLINK {
+            let aggregator = IChainlinkAggregatorDispatcher { contract_address: feed };
+            let (_, _, _, updated_at, _) = aggregator.latest_round_data();
+            updated_at
+        } else {
+            let oracle = IPriceOracleDispatcher { contract_address: feed };
+            oracle.get_updated_at()
+        }
     }
 }

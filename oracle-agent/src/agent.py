@@ -48,6 +48,9 @@ class OracleAgent:
         
         self.resolver = MarketResolver(local_cache_dir=local_cache_dir)
         self.starknet = None
+        self.proposer_bond = int(os.getenv("ORACLE_PROPOSER_BOND", "100"))
+        self.require_signed = os.getenv("ORACLE_REQUIRE_SIGNED", "1") == "1"
+        self.verifier_address = os.getenv("RESOLUTION_VERIFIER_ADDRESS")
         
         # Initialize Starknet if credentials are available
         if os.getenv("STARKNET_ACCOUNT_ADDRESS") and os.getenv("STARKNET_PRIVATE_KEY"):
@@ -164,17 +167,34 @@ class OracleAgent:
             print("Error: Starknet interface not initialized")
             print("Set STARKNET_ACCOUNT_ADDRESS and STARKNET_PRIVATE_KEY environment variables")
             return None
+
+        if self.require_signed and self.starknet.account is None:
+            print("Error: Signed submissions required, but no account is configured")
+            return None
         
         if self.starknet.oracle_address is None:
             print("Error: Oracle contract address not set")
             print("Set ORACLE_CONTRACT_ADDRESS environment variable")
             return None
         
+        proof = None
+        requires_proof = False
+        if self.verifier_address:
+            requires_proof = self.starknet.requires_proof(outcome.market_id)
+        if requires_proof:
+            proof = self.resolver.build_proof(
+                outcome=outcome.outcome,
+                raw_value=outcome.raw_value,
+                data_hash=outcome.data_hash
+            )
+
         return self.starknet.propose(
             market_id=outcome.market_id,
             outcome=outcome.outcome,
             data_hash=outcome.data_hash,
             data_uri=outcome.data_uri,
+            bond=self.proposer_bond,
+            proof=proof,
         )
     
     def run_market(self, market_id: str, propose: bool = True, finalize: bool = False) -> Optional[MarketOutcome]:

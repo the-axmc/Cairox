@@ -54,9 +54,9 @@ VOIDED = 3
 DEFAULT_DEVNET_URL = "http://localhost:5050"
 DEFAULT_REPORTER_ADDRESS = 0x123456789012345678901234567890123456789012345678901234567890123
 
-# Sample ZK proof (stubbed for v0)
-# In production, this would be a real SNARK proof (Groth16 or PLONK)
-SAMPLE_PROOF = [1, 2, 3, 4, 5, 6, 7, 8]
+def build_stub_proof(data_hash: int) -> list:
+    """Build a stub proof where the first element matches data_hash."""
+    return [data_hash, 2, 3, 4, 5]
 
 
 class CairoxE2ETest:
@@ -174,6 +174,26 @@ class CairoxE2ETest:
         """Try to get ResolutionVerifier contract address."""
         # Same as above - placeholder for now
         return None
+
+    async def _ensure_verifier_ready(self, market_id: int) -> None:
+        """Best-effort wiring: set oracle + require proof for the market."""
+        if not self.verifier_contract or not self.oracle_contract:
+            return
+        try:
+            await self.verifier_contract.functions["set_oracle"].invoke(
+                oracle=int(self.oracle_contract.address),
+                max_fee=int(1e16)
+            )
+        except Exception:
+            pass
+        try:
+            await self.verifier_contract.functions["set_requires_proof"].invoke(
+                market_id=market_id,
+                value=True,
+                max_fee=int(1e16)
+            )
+        except Exception:
+            pass
     
     async def setup_test_market(self) -> int:
         """Create a test market with factory."""
@@ -207,6 +227,10 @@ class CairoxE2ETest:
             if not self.oracle_contract:
                 print("✗ Oracle contract not loaded")
                 return False
+
+            await self._ensure_verifier_ready(market_id_fast)
+
+            await self._ensure_verifier_ready(market_id)
             
             # Check initial status
             initial_status = await self.oracle_contract.functions["get_market_status"].call(market_id)
@@ -226,7 +250,7 @@ class CairoxE2ETest:
                 market_id=market_id,
                 outcome=outcome,
                 data_hash=data_hash,
-                zk_proof=SAMPLE_PROOF,
+                zk_proof=build_stub_proof(data_hash),
                 max_fee=int(1e16)  # 0.01 ETH
             )
             
@@ -470,7 +494,7 @@ class CairoxE2ETest:
                 market_id=market_id_fast,
                 outcome=outcome,
                 data_hash=data_hash,
-                zk_proof=SAMPLE_PROOF,
+                zk_proof=build_stub_proof(data_hash),
                 max_fee=int(1e16)
             )
             await wait_for_tx(self.client, result1.hash)

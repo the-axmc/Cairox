@@ -4,9 +4,16 @@
 mod ResolutionVerifier {
     use core::array::Span;
     use core::array::SpanTrait;
+    use starknet::ContractAddress;
     use starknet::storage::Map;
     use starknet::storage::StoragePointerReadAccess;
     use starknet::storage::StoragePointerWriteAccess;
+    use self::{IOptimisticOracleDispatcher, IOptimisticOracleDispatcherTrait};
+
+    #[starknet::interface]
+    trait IOptimisticOracle<TContractState> {
+        fn get_data_hash(self: @TContractState, market_id: felt252) -> felt252;
+    }
 
     #[storage]
     struct Storage {
@@ -57,6 +64,13 @@ mod ResolutionVerifier {
         let owner = self.owner.read();
         let oracle = self.oracle.read();
         assert(caller == owner | caller == oracle, 'Not authorized');
+        assert(oracle != 0, 'Oracle not set');
+
+        assert(proof.len() > 0, 'Empty proof');
+        let expected_hash = IOptimisticOracleDispatcher { contract_address: ContractAddress { value: oracle } }
+            .get_data_hash(market_id);
+        let provided_hash = *proof.at(0);
+        assert(provided_hash == expected_hash, 'Data hash mismatch');
 
         let hash = Self::hash_proof(market_id, outcome, proof);
         self.proof_hash.write(market_id, hash);

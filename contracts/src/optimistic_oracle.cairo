@@ -259,6 +259,11 @@ mod OptimisticOracle {
         self.final_outcome.read(market_id)
     }
 
+    #[external(v0)]
+    fn get_data_hash(self: @ContractState, market_id: felt252) -> felt252 {
+        self.data_hash.read(market_id)
+    }
+
     fn internal_propose(
         ref self: ContractState,
         market_id: felt252,

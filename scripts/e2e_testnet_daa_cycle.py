@@ -49,8 +49,8 @@ RESOLVED = 2
 VOIDED = 3
 
 # Resolution outcome constants
-OUTCOME_YES = 0
-OUTCOME_NO = 1
+OUTCOME_YES = 1
+OUTCOME_NO = 0
 
 # Default configuration
 DEFAULT_RPC_URL = "https://starknet-testnet.public.blastapi.io/rpc/v0_7"
@@ -78,6 +78,8 @@ class E2ETestnetRunner:
         self.lmsr_maker = None
         self.stablecoin_token = None
         self.daa_market_id = None
+        self.daa_market_address = None
+        self.daa_market_contract = None
         
     async def connect(self) -> bool:
         """Connect to Starknet testnet."""
@@ -211,11 +213,40 @@ class E2ETestnetRunner:
         """Get MarketFactory ABI."""
         return [
             {"name": "create_market", "inputs": [
-                {"name": "metadata_uri", "type": "felt"}
+                {"name": "question", "type": "felt"}
             ], "type": "function", "outputs": [
-                {"name": "market_id", "type": "felt"}
+                {"name": "market_id", "type": "u256"}
+            ]},
+            {"name": "get_market_count", "inputs": [], "type": "function", "outputs": [
+                {"name": "count", "type": "u256"}
+            ]},
+            {"name": "get_market", "inputs": [
+                {"name": "market_id", "type": "u256"}
+            ], "type": "function", "outputs": [
+                {"name": "market_address", "type": "felt"}
             ]},
         ]
+
+    def _get_market_abi(self) -> List[Dict]:
+        """Get Market ABI (minimal)."""
+        return [
+            {"name": "resolve_from_oracle", "inputs": [], "type": "function"},
+            {"name": "redeem", "inputs": [], "type": "function", "outputs": [
+                {"name": "winnings", "type": "u256"}
+            ]},
+            {"name": "get_status", "inputs": [], "type": "function", "outputs": [
+                {"name": "status", "type": "felt"}
+            ]},
+        ]
+
+    def _u256_to_int(self, value) -> int:
+        if isinstance(value, dict):
+            return int(value.get("low", 0)) + (int(value.get("high", 0)) << 128)
+        if hasattr(value, "low"):
+            return int(value.low) + (int(value.high) << 128)
+        if isinstance(value, (list, tuple)) and len(value) == 2:
+            return int(value[0]) + (int(value[1]) << 128)
+        return int(value)
     
     def _get_vault_abi(self) -> List[Dict]:
         """Get CollateralVault ABI."""
@@ -261,24 +292,34 @@ class E2ETestnetRunner:
             return 0
         
         try:
-            # Create market with metadata
-            metadata_uri = encode_felt("ipfs://daa-market-metadata")
-            
+            count_before = await self.market_factory.functions["get_market_count"].call()
+            count_before_int = self._u256_to_int(count_before)
+
+            question = encode_felt("DAA >= threshold?")
             result = await self.market_factory.functions["create_market"].invoke(
-                metadata_uri=metadata_uri,
+                question=question,
                 max_fee=int(1e17)
             )
-            
+
             print(f"  ✓ Market creation submitted: {hex(result.transaction_hash)}")
-            
+
             # Wait for acceptance
             await wait_for_tx(self.client, result.transaction_hash)
             print(f"  ✓ Market created")
-            
-            # Get market ID from events (simplified - in production parse events)
-            self.daa_market_id = 1001  # For demo, use a known ID
-            
+
+            self.daa_market_id = count_before_int
             print(f"  ✓ DAA Market ID: {self.daa_market_id}")
+
+            market_addr = await self.market_factory.functions["get_market"].call(
+                market_id={"low": self.daa_market_id, "high": 0}
+            )
+            self.daa_market_address = int(market_addr)
+            self.daa_market_contract = Contract(
+                address=self.daa_market_address,
+                abi=self._get_market_abi(),
+                provider=self.account
+            )
+            print(f"  ✓ DAA Market Address: {hex(self.daa_market_address)}")
             return self.daa_market_id
             
         except Exception as e:
@@ -423,13 +464,32 @@ class E2ETestnetRunner:
             status = await self.oracle_contract.functions["get_market_status"].call(self.daa_market_id)
             status_str = {0: "PENDING", 1: "PROPOSED", 2: "RESOLVED", 3: "VOIDED"}.get(status, f"UNKNOWN({status})")
             print(f"  ✓ Market status: {status_str}")
-            
-            return status == RESOLVED
+
+            if status == RESOLVED:
+                await self.resolve_market_from_oracle()
+                return True
+            return False
             
         except Exception as e:
             print(f"  ✗ Failed to resolve: {e}")
             import traceback
             traceback.print_exc()
+            return False
+
+    async def resolve_market_from_oracle(self) -> bool:
+        """Resolve the on-chain Market from OptimisticOracle outcome."""
+        if not self.daa_market_contract:
+            print("  ✗ Market contract not loaded")
+            return False
+        try:
+            result = await self.daa_market_contract.functions["resolve_from_oracle"].invoke(
+                max_fee=int(1e17)
+            )
+            await wait_for_tx(self.client, result.transaction_hash)
+            print("  ✓ Market resolved from oracle")
+            return True
+        except Exception as e:
+            print(f"  ✗ Failed to resolve market from oracle: {e}")
             return False
     
     async def verify_vault_balances(self) -> Dict:

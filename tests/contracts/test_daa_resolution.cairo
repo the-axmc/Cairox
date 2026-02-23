@@ -61,8 +61,8 @@ fn fees_market_id() -> felt252 {
 }
 
 // Resolution outcome constants
-const OUTCOME_YES: felt252 = 0;
-const OUTCOME_NO: felt252 = 1;
+const OUTCOME_YES: felt252 = 1;
+const OUTCOME_NO: felt252 = 0;
 
 // Market status constants
 const PENDING: felt252 = 0;
@@ -134,7 +134,7 @@ func test_daa_below_threshold_resolves_no() {
     let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     let market_id = daa_market_id();
-    let outcome = OUTCOME_NO;  // NO = 1
+    let outcome = OUTCOME_NO;  // NO = 0
     let data_hash = s'0x987654321098765432109876543210987654321098765432109876543210987';
     let data_uri = s'ipfs://daa-data-low';
     let proposer_bond = u256_value(100);

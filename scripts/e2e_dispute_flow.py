@@ -137,7 +137,12 @@ async def propose_market(
     
     # Convert strings to felt252 (Cairo format)
     market_id_felt = int.from_bytes(market_id.encode(), 'big')
-    outcome_felt = int.from_bytes(outcome.encode(), 'big')
+    if outcome.upper() == "YES":
+        outcome_felt = 1
+    elif outcome.upper() == "NO":
+        outcome_felt = 0
+    else:
+        outcome_felt = int.from_bytes(outcome.encode(), 'big')
     data_hash_felt = int(data_hash, 16)
     data_uri_felt = int.from_bytes(data_uri.encode(), 'big')
     
@@ -167,7 +172,7 @@ async def propose_market(
     
     # Verify market status
     status = await oracle.functions["get_market_status"].call(market_id_felt)
-    print(f"  Market status: {status}')  # 1 = PROPOSED
+    print(f"  Market status: {status}")  # 1 = PROPOSED
     
     return result
 

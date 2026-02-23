@@ -192,6 +192,30 @@ class MarketResolver:
         serialized = json.dumps(raw_data, sort_keys=True, separators=(',', ':'))
         return hashlib.sha256(serialized.encode()).hexdigest()
 
+    def _felt_from_str(self, value: str) -> int:
+        """Pack a short string into felt."""
+        return int.from_bytes(str(value).encode()[:31], "big")
+
+    def _outcome_to_felt(self, outcome: str) -> int:
+        """Encode outcomes consistently for proofs."""
+        if outcome in ("YES", "yes", "Yes", "1", 1):
+            return 1
+        if outcome in ("NO", "no", "No", "0", 0):
+            return 0
+        return self._felt_from_str(outcome)
+
+    def build_proof(self, outcome: str, raw_value: Any, data_hash: str) -> List[int]:
+        """
+        Build a minimal proof array for on-chain verification.
+
+        The first element MUST be the data_hash so the verifier can check it.
+        """
+        data_hash_felt = int(data_hash, 16)
+        outcome_felt = self._outcome_to_felt(outcome)
+        value_hash = hashlib.sha256(str(raw_value).encode()).hexdigest()
+        value_felt = int(value_hash, 16)
+        return [data_hash_felt, outcome_felt, value_felt]
+
     def _store_data(self, data: Dict[str, Any], market_id: str) -> str:
         """
         Store raw data and return URI.

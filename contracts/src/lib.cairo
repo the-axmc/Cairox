@@ -6,6 +6,7 @@ mod optimistic_oracle;
 mod collateral_vault;
 mod outcome_token;
 mod stablecoin;
+mod price_oracle;
 mod market_factory;
 mod market;
 mod lmsr_market_maker;
