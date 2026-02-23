@@ -11,7 +11,7 @@ import requests
 from datetime import datetime
 
 # Growthepie API endpoints
-GROWTHEPIE_API = "https://api.growthepie.xyz/v1"
+GROWTHEPIE_API = "https://api.growthepie.com/v1"
 
 # Oracle contract address (update after deployment)
 ORACLE_ADDRESS = os.environ.get("ORACLE_ADDRESS", "0x...")

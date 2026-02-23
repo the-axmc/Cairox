@@ -43,7 +43,7 @@ class OracleAgent:
         
         # Try to get Growthepie URL from environment
         if growthepie_url is None:
-            growthepie_url = os.getenv("GROWTH_API_URL", "https://api.growthepie.xyz")
+            growthepie_url = os.getenv("GROWTH_API_URL", "https://api.growthepie.com")
             self.growthepie = GrowthepieClient(base_url=growthepie_url)
         
         self.resolver = MarketResolver(local_cache_dir=local_cache_dir)

@@ -214,7 +214,7 @@ class OracleRunner:
         print("\n=== Fetching growthepie Data ===")
         
         # In production, this would call the growthepie API:
-        # curl -s https://api.growthepie.xyz/v1/daily-active-addresses?chain=starknet
+        # curl -s https://api.growthepie.com/v1/daily-active-addresses?chain=starknet
         
         # For demo, we'll simulate by returning mock data
         print("  Simulating growthepie API call...")

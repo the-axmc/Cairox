@@ -290,7 +290,7 @@ class E2ETestnetRunner:
             
             async with aiohttp.ClientSession() as session:
                 # Mock API call - in production, this would call growthepie
-                # url = "https://api.growthepie.xyz/v1/daily-active-addresses?chain=starknet"
+                # url = "https://api.growthepie.com/v1/daily-active-addresses?chain=starknet"
                 print("  Simulating API call to growthepie...")
                 
                 # Simulate response
