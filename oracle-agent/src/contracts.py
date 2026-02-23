@@ -158,6 +158,18 @@ class StarknetInterface:
             return hex(value)
         return value
 
+    def _parse_felt(self, value: Union[str, int]) -> int:
+        """Parse a felt from int or hex/decimal string."""
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str):
+            if value.startswith("0x"):
+                return int(value, 16)
+            if value.isdigit():
+                return int(value)
+            return int(value, 16)
+        return int(value)
+
     def _market_id_to_felt(self, market_id: str) -> int:
         """Convert a market_id string into a felt252."""
         if isinstance(market_id, int):
@@ -256,8 +268,8 @@ class StarknetInterface:
         
         if proof is not None:
             if self.account:
-                return self._propose_with_proof_starknet_py(market_id, outcome, data_hash, proof)
-            return self._propose_with_proof_starkli(market_id, outcome, data_hash, proof)
+                return self._propose_with_proof_starknet_py(market_id, outcome, data_hash, bond, proof)
+            return self._propose_with_proof_starkli(market_id, outcome, data_hash, bond, proof)
 
         if self.account:
             return self._propose_starknet_py(market_id, outcome, data_hash, data_uri, bond)
@@ -274,7 +286,7 @@ class StarknetInterface:
         """Propose using starknet.py."""
         market_id_felt = self._market_id_to_felt(market_id)
         outcome_felt = self._outcome_to_felt(outcome)
-        data_hash_felt = int(data_hash, 16)
+        data_hash_felt = self._parse_felt(data_hash)
         uri_hash = int.from_bytes(data_uri.encode()[:31], 'big')
         bond_u256 = self._to_u256(bond)
 
@@ -314,7 +326,7 @@ class StarknetInterface:
     ) -> Dict[str, Any]:
         """Propose using starkli CLI."""
         outcome_felt = self._outcome_to_felt(outcome)
-        data_hash_felt = int(data_hash, 16)
+        data_hash_felt = self._parse_felt(data_hash)
         uri_hash = int.from_bytes(data_uri.encode()[:31], 'big')
         bond_u256 = self._to_u256(bond)
         
@@ -357,18 +369,27 @@ class StarknetInterface:
         market_id: str,
         outcome: str,
         data_hash: str,
+        bond: int,
         proof: list,
     ) -> Dict[str, Any]:
         """Propose with proof using starknet.py."""
         market_id_felt = self._market_id_to_felt(market_id)
         outcome_felt = self._outcome_to_felt(outcome)
-        data_hash_felt = int(data_hash, 16)
+        data_hash_felt = self._parse_felt(data_hash)
+        bond_u256 = self._to_u256(bond)
         proof_calldata = [int(p) for p in proof]
 
         call = Call(
             to_addr=self.oracle_address,
             selector="propose_with_proof",
-            calldata=[market_id_felt, outcome_felt, data_hash_felt, *proof_calldata],
+            calldata=[
+                market_id_felt,
+                outcome_felt,
+                data_hash_felt,
+                bond_u256[0],
+                bond_u256[1],
+                *proof_calldata,
+            ],
         )
 
         try:
@@ -389,12 +410,14 @@ class StarknetInterface:
         market_id: str,
         outcome: str,
         data_hash: str,
+        bond: int,
         proof: list,
     ) -> Dict[str, Any]:
         """Propose with proof using starkli CLI."""
         market_id_felt = self._market_id_to_felt(market_id)
         outcome_felt = self._outcome_to_felt(outcome)
-        data_hash_felt = int(data_hash, 16)
+        data_hash_felt = self._parse_felt(data_hash)
+        bond_u256 = self._to_u256(bond)
         proof_args = [str(int(p)) for p in proof]
 
         cmd = [
@@ -404,6 +427,8 @@ class StarknetInterface:
             str(market_id_felt),
             str(outcome_felt),
             str(data_hash_felt),
+            str(bond_u256[0]),
+            str(bond_u256[1]),
             *proof_args,
         ]
 
@@ -601,6 +626,7 @@ class StarknetInterface:
                     {"name": "market_id", "type": "felt"},
                     {"name": "outcome", "type": "felt"},
                     {"name": "data_hash", "type": "felt"},
+                    {"name": "bond", "type": "u256"},
                     {"name": "zk_proof", "type": "felt*"},
                 ],
                 "outputs": [],

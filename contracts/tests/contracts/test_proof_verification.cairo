@@ -7,6 +7,9 @@ use starknet::cast::cast_felt;
 use openzeppelin::math::u256 as u256_lib;
 use cairox_contracts::OptimisticOracle;
 use cairox_contracts::ResolutionVerifier;
+use cairox_contracts::dummy_oracle::{IDummyOracleDispatcher, IDummyOracleDispatcherTrait};
+use core::array::Array;
+use core::array::ArrayTrait;
 
 // Helper functions
 fn reporter_address() -> ContractAddress {
@@ -38,14 +41,36 @@ fn sample_valid_proof() -> Array<felt252> {
     proof
 }
 
+fn sample_valid_proof_with_hash(hash: felt252) -> Array<felt252> {
+    let mut proof = Array::new();
+    proof.append(hash);
+    proof.append(0x2);
+    proof.append(0x3);
+    proof
+}
+
 fn sample_invalid_proof() -> Array<felt252> {
     let mut proof = Array::new();
     proof.append(0x0);
     proof
 }
 
+fn deploy_dummy_oracle() -> ContractAddress {
+    let mut calldata = Array::new();
+    let addr = starknet::deploy_syscall(
+        'dummy_oracle',
+        calldata.span(),
+        0,
+        false
+    )
+    .unwrap()
+    .assert();
+    addr
+}
+
 // Helper to propose a market using the normal path (optimistic)
 fn propose_optimistic(oracle: @mut OptimisticOracle, market_id: felt252, outcome: felt252) {
+    oracle.register_market(market_id: market_id);
     oracle.propose(
         market_id: market_id,
         outcome: outcome,
@@ -57,10 +82,12 @@ fn propose_optimistic(oracle: @mut OptimisticOracle, market_id: felt252, outcome
 
 // Helper to propose with ZK proof (fast path)
 fn propose_with_proof(oracle: @mut OptimisticOracle, market_id: felt252, outcome: felt252, proof: Span<felt252>) {
+    oracle.register_market(market_id: market_id);
     oracle.propose_with_proof(
         market_id: market_id,
         outcome: outcome,
         data_hash: 0x1234567890abcdef,
+        bond: u256_lib::U256 { low: 100, high: 0 },
         zk_proof: proof
     );
 }
@@ -314,12 +341,17 @@ fn test_normal_finalize_on_fast_path_market() {
 #[test]
 fn test_resolution_verifier_verify_proof() {
     // Test ResolutionVerifier::verify_resolution_proof
-    
-    let verifier = cairox_contracts::resolution_verifier::ResolutionVerifier::constructor();
-    
+
+    let oracle_addr = deploy_dummy_oracle();
+    let oracle = IDummyOracleDispatcher { contract_address: oracle_addr };
+    let mut verifier = cairox_contracts::resolution_verifier::ResolutionVerifier::constructor();
+
     let market_id = 200;
     let outcome = 1;
-    let proof = sample_valid_proof();
+    let data_hash = 0xabc;
+    oracle.set_data_hash(market_id, data_hash);
+    verifier.set_oracle(oracle_addr.into());
+    let proof = sample_valid_proof_with_hash(data_hash);
     
     // Verify proof (stubbed for v0 - always returns true)
     let verified = verifier.verify_resolution_proof(
@@ -368,11 +400,16 @@ fn test_resolution_verifier_is_fast_path() {
 fn test_resolution_verifier_get_proof_hash() {
     // Test ResolutionVerifier::get_proof_hash
     
+    let oracle_addr = deploy_dummy_oracle();
+    let oracle = IDummyOracleDispatcher { contract_address: oracle_addr };
     let mut verifier = cairox_contracts::resolution_verifier::ResolutionVerifier::constructor();
     
     let market_id = 203;
     let outcome = 1;
-    let proof = sample_valid_proof();
+    let data_hash = 0xdef;
+    oracle.set_data_hash(market_id, data_hash);
+    verifier.set_oracle(oracle_addr.into());
+    let proof = sample_valid_proof_with_hash(data_hash);
     
     // Verify proof first
     let verified = verifier.verify_resolution_proof(
@@ -461,9 +498,15 @@ fn test_fast_finalize_idempotent() {
 fn test_resolution_verifier_hash_proof() {
     // Test the hash_proof internal function
     
-    let verifier = cairox_contracts::resolution_verifier::ResolutionVerifier::constructor();
+    let oracle_addr = deploy_dummy_oracle();
+    let oracle = IDummyOracleDispatcher { contract_address: oracle_addr };
+    let mut verifier = cairox_contracts::resolution_verifier::ResolutionVerifier::constructor();
     
-    let proof = sample_valid_proof();
+    let market_id = 600;
+    let data_hash = 0x999;
+    oracle.set_data_hash(market_id, data_hash);
+    verifier.set_oracle(oracle_addr.into());
+    let proof = sample_valid_proof_with_hash(data_hash);
     
     // Compute hash (using internal function)
     // Note: We can't directly call internal functions in tests
@@ -472,9 +515,9 @@ fn test_resolution_verifier_hash_proof() {
     
     // Verify by calling verify_resolution_proof which computes hash
     let verified = verifier.verify_resolution_proof(
-        market_id: 600,
+        market_id: market_id,
         outcome: 1,
-        proof: sample_valid_proof().span()
+        proof: proof.span()
     );
     
     assert(verified, 'Proof verification should work');
@@ -489,6 +532,7 @@ fn test_propose_with_empty_proof() {
     
     let market_id = 700;
     let outcome = 1;
+    oracle.register_market(market_id: market_id);
     
     // Create empty proof
     let mut empty_proof = Array::new();
@@ -499,6 +543,7 @@ fn test_propose_with_empty_proof() {
         market_id: market_id,
         outcome: outcome,
         data_hash: 0x1234567890abcdef,
+        bond: u256_lib::U256 { low: 100, high: 0 },
         zk_proof: empty_proof.span()
     );
 }
@@ -512,6 +557,7 @@ fn test_propose_with_too_large_proof() {
     
     let market_id = 701;
     let outcome = 1;
+    oracle.register_market(market_id: market_id);
     
     // Create proof that's too large (> 1000 elements)
     // Note: In practice, SNARK proofs are small (2-3 elements for Groth16, ~200 for PLONK)
@@ -527,6 +573,7 @@ fn test_propose_with_too_large_proof() {
         market_id: market_id,
         outcome: outcome,
         data_hash: 0x1234567890abcdef,
+        bond: u256_lib::U256 { low: 100, high: 0 },
         zk_proof: large_proof.span()
     );
 }

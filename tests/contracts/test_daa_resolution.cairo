@@ -8,6 +8,9 @@ use starknet::cast::cast_felt;
 use openzeppelin::math::u256 as u256_lib;
 use cairox_contracts::OptimisticOracle;
 use cairox_contracts::ResolutionVerifier;
+use cairox_contracts::dummy_oracle::{IDummyOracleDispatcher, IDummyOracleDispatcherTrait};
+use core::array::Array;
+use core::array::ArrayTrait;
 
 // ==================== Helper Functions ====================
 
@@ -89,6 +92,7 @@ func test_daa_above_threshold_resolves_yes() {
     
     // 1. Propose DAA market with threshold check
     // The oracle's resolve_arbitration should check DAA data
+    oracle.register_market(market_id: market_id);
     oracle.propose(
         market_id: market_id,
         outcome: outcome,
@@ -140,6 +144,7 @@ func test_daa_below_threshold_resolves_no() {
     let proposer_bond = u256_value(100);
     
     // Propose DAA market with low DAA value
+    oracle.register_market(market_id: market_id);
     oracle.propose(
         market_id: market_id,
         outcome: outcome,
@@ -177,6 +182,16 @@ func test_daa_resolution_with_data_verification() {
     // Test the complete DAA resolution flow with data verification
     
     let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
+    let mut calldata = Array::new();
+    let oracle_addr = starknet::deploy_syscall(
+        'dummy_oracle',
+        calldata.span(),
+        0,
+        false
+    )
+    .unwrap()
+    .assert();
+    let oracle = IDummyOracleDispatcher { contract_address: oracle_addr };
     let mut verifier = ResolutionVerifier::constructor();
     
     let market_id = daa_market_id();
@@ -185,8 +200,11 @@ func test_daa_resolution_with_data_verification() {
     
     // Store DAA data hash (in production, this would be the hash of DAA data)
     let data_hash = s'0x111111111111111111111111111111111111111111111111111111111111111';
+    oracle.set_data_hash(market_id, data_hash);
+    verifier.set_oracle(oracle_addr.into());
     
     // Propose the market
+    oracle.register_market(market_id: market_id);
     oracle.propose(
         market_id: market_id,
         outcome: outcome,
@@ -200,12 +218,14 @@ func test_daa_resolution_with_data_verification() {
     assert(status == PROPOSED, 'Market should be in Proposed state');
     
     // Verify DAA data using verifier
-    let daa_data = [daa_value as felt252];
+    let mut daa_data = Array::new();
+    daa_data.append(data_hash);
+    daa_data.append(daa_value as felt252);
     let verified = ResolutionVerifier::verify_resolution_proof(
         ref contract: verifier,
         market_id: market_id,
         outcome: outcome,
-        proof: starknet::SpanTrait::new(daa_data)
+        proof: daa_data.span()
     );
     
     assert(verified, 'DAA data should be verified');
@@ -238,6 +258,7 @@ func test_txcount_resolution() {
     let outcome = OUTCOME_YES;
     
     // Propose txcount market
+    oracle.register_market(market_id: market_id);
     oracle.propose(
         market_id: market_id,
         outcome: outcome,
@@ -288,6 +309,7 @@ func test_txcount_below_threshold_resolves_no() {
     let outcome = OUTCOME_NO;
     
     // Propose txcount market
+    oracle.register_market(market_id: market_id);
     oracle.propose(
         market_id: market_id,
         outcome: outcome,
@@ -338,6 +360,7 @@ func test_fees_resolution() {
     let outcome = OUTCOME_YES;
     
     // Propose fees market
+    oracle.register_market(market_id: market_id);
     oracle.propose(
         market_id: market_id,
         outcome: outcome,
@@ -388,6 +411,7 @@ func test_fees_below_threshold_resolves_no() {
     let outcome = OUTCOME_NO;
     
     // Propose fees market
+    oracle.register_market(market_id: market_id);
     oracle.propose(
         market_id: market_id,
         outcome: outcome,

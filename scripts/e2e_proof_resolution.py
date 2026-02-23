@@ -25,6 +25,7 @@ Example:
 """
 
 import argparse
+import os
 import sys
 import time
 from typing import Tuple, Optional
@@ -54,9 +55,20 @@ VOIDED = 3
 DEFAULT_DEVNET_URL = "http://localhost:5050"
 DEFAULT_REPORTER_ADDRESS = 0x123456789012345678901234567890123456789012345678901234567890123
 
-def build_stub_proof(data_hash: int) -> list:
-    """Build a stub proof where the first element matches data_hash."""
-    return [data_hash, 2, 3, 4, 5]
+def build_stub_proof(market_id: int, outcome: int, data_hash: int) -> list:
+    """Build a proof [data_hash, sig_r, sig_s]. If signer key exists, sign."""
+    priv = os.getenv("ORACLE_SIGNER_PRIVATE_KEY") or os.getenv("STARKNET_PRIVATE_KEY")
+    if priv:
+        try:
+            from starknet_py.utils.crypto.signature import sign as starknet_sign
+            msg_hash = pedersen_hash(market_id, outcome)
+            msg_hash = pedersen_hash(msg_hash, data_hash)
+            priv_int = int(priv, 16) if str(priv).startswith("0x") else int(priv)
+            sig_r, sig_s = starknet_sign(msg_hash, priv_int)
+            return [data_hash, int(sig_r), int(sig_s)]
+        except Exception:
+            pass
+    return [data_hash, 0, 0]
 
 
 class CairoxE2ETest:
@@ -87,6 +99,19 @@ class CairoxE2ETest:
             print(f"✗ Failed to connect to devnet: {e}")
             print(f"  Make sure Starknet devnet is running: starknet-devnet --seed 0")
             return False
+
+    async def _ensure_market_registered(self, market_id: int) -> None:
+        """Register a market with the OptimisticOracle if not already registered."""
+        if not self.oracle_contract:
+            return
+        try:
+            await self.oracle_contract.functions["register_market"].invoke(
+                market_id=market_id,
+                max_fee=int(1e16)
+            )
+        except Exception:
+            # Likely already registered
+            return
     
     async def deploy_contracts(self) -> bool:
         """Deploy all Cairox contracts to devnet."""
@@ -140,6 +165,30 @@ class CairoxE2ETest:
                     provider=self.account
                 )
                 print(f"✓ Loaded ResolutionVerifier: {hex(verifier_address)}")
+                signer_pubkey = os.getenv("ORACLE_SIGNER_PUBLIC_KEY")
+                if signer_pubkey:
+                    try:
+                        pubkey_int = int(signer_pubkey, 16) if signer_pubkey.startswith("0x") else int(signer_pubkey)
+                        tx = await self.verifier_contract.functions["set_signer_pubkey"].invoke(
+                            pubkey=pubkey_int,
+                            max_fee=int(1e16)
+                        )
+                        await wait_for_tx(self.client, tx.hash)
+                        print("✓ Set verifier signer pubkey")
+                    except Exception as e:
+                        print(f"⚠ Failed to set signer pubkey: {e}")
+                zk_verifier = os.getenv("ZK_VERIFIER_ADDRESS")
+                if zk_verifier:
+                    try:
+                        zk_int = int(zk_verifier, 16) if zk_verifier.startswith("0x") else int(zk_verifier)
+                        tx = await self.verifier_contract.functions["set_zk_verifier"].invoke(
+                            verifier=zk_int,
+                            max_fee=int(1e16)
+                        )
+                        await wait_for_tx(self.client, tx.hash)
+                        print("✓ Set ZK verifier address")
+                    except Exception as e:
+                        print(f"⚠ Failed to set ZK verifier: {e}")
             
             return True
             
@@ -246,11 +295,13 @@ class CairoxE2ETest:
             )
             
             # Call propose_with_proof
+            await self._ensure_market_registered(market_id)
             result = await self.oracle_contract.functions["propose_with_proof"].invoke(
                 market_id=market_id,
                 outcome=outcome,
                 data_hash=data_hash,
-                zk_proof=build_stub_proof(data_hash),
+                bond=100,
+                zk_proof=build_stub_proof(market_id, outcome, data_hash),
                 max_fee=int(1e16)  # 0.01 ETH
             )
             
@@ -329,7 +380,8 @@ class CairoxE2ETest:
                 encode_felt(b"https://example.com/market-data-2"),
                 encode_felt(b"sample-market-data-2")
             )
-            
+
+            await self._ensure_market_registered(market_id)
             result = await self.oracle_contract.functions["propose"].invoke(
                 market_id=market_id,
                 outcome=outcome,
@@ -436,7 +488,8 @@ class CairoxE2ETest:
                 encode_felt(b"https://example.com/fallback-data"),
                 encode_felt(b"fallback-market-data")
             )
-            
+
+            await self._ensure_market_registered(market_id)
             result = await self.oracle_contract.functions["propose"].invoke(
                 market_id=market_id,
                 outcome=outcome,
@@ -490,11 +543,13 @@ class CairoxE2ETest:
             
             # Fast path
             print("\n  Fast Path:")
+            await self._ensure_market_registered(market_id_fast)
             result1 = await self.oracle_contract.functions["propose_with_proof"].invoke(
                 market_id=market_id_fast,
                 outcome=outcome,
                 data_hash=data_hash,
-                zk_proof=build_stub_proof(data_hash),
+                bond=100,
+                zk_proof=build_stub_proof(market_id_fast, outcome, data_hash),
                 max_fee=int(1e16)
             )
             await wait_for_tx(self.client, result1.hash)
@@ -507,6 +562,7 @@ class CairoxE2ETest:
             
             # Normal path
             print("\n  Normal Path:")
+            await self._ensure_market_registered(market_id_normal)
             result2 = await self.oracle_contract.functions["propose"].invoke(
                 market_id=market_id_normal,
                 outcome=outcome,

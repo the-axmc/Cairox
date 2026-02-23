@@ -117,6 +117,14 @@ mod LMSRMarketMaker {
         u256 { low: price, high: 0 }
     }
 
+    #[external(v0)]
+    fn get_initial_cost(self: @ContractState, b: u256) -> u256 {
+        let b_u = Self::u256_to_u128(b);
+        assert(b_u > 0, 'b=0');
+        let cost = Self::cost(b_u, 0_u128, 0_u128);
+        u256 { low: cost, high: 0 }
+    }
+
     fn u256_to_u128(x: u256) -> u128 {
         assert(x.high == 0, 'u256 overflow');
         x.low

@@ -20,6 +20,7 @@ fn test_propose_market() {
     let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     // Propose a market as the reporter
+    oracle.register_market(market_id: 1);
     oracle.propose(
         market_id: 1,
         outcome: 1,
@@ -38,6 +39,7 @@ fn test_propose_unauthorized() {
     let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     // Try to propose from a non-reporter address
+    oracle.register_market(market_id: 1);
     let non_reporter = reporter_address();
     starknet::set_caller_address(starknet::CallerAddress { value: non_reporter.value });
     oracle.propose(
@@ -54,6 +56,7 @@ fn test_cannot_finalize_early() {
     let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     // Propose a market
+    oracle.register_market(market_id: 1);
     oracle.propose(
         market_id: 1,
         outcome: 1,
@@ -72,6 +75,7 @@ fn test_finalize_after_dispute_window() {
     let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     // Propose a market
+    oracle.register_market(market_id: 1);
     oracle.propose(
         market_id: 1,
         outcome: 1,
@@ -102,6 +106,7 @@ fn test_market_data_storage() {
     let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
     
     let proposer = reporter_address();
+    oracle.register_market(market_id: 42);
     oracle.propose(
         market_id: 42,
         outcome: 5,

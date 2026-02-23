@@ -379,10 +379,26 @@ mod Market {
         let outcome = oracle.get_final_outcome(market_id);
         assert(outcome == OUTCOME_YES | outcome == OUTCOME_NO, 'Invalid outcome');
 
+        let now: u256 = starknet::get_block_timestamp().into();
+        let created_at = self.created_at.read();
+        let delay = self.resolution_delay.read();
+        assert(now >= created_at + delay, 'Resolution delay');
+
         self.status.write(STATE_RESOLVED);
         self.winning_outcome.write(outcome);
-        let now: u256 = starknet::get_block_timestamp().into();
         self.resolved_at.write(now);
+    }
+
+    // Seed collateral for LMSR solvency (factory-only)
+    #[external(v0)]
+    fn seed_collateral(ref self: ContractState, amount: u256) {
+        let caller = starknet::get_caller_address();
+        let factory = self.factory_addr.read();
+        assert(caller == factory, 'Not factory');
+        assert(amount > u256 { low: 0, high: 0 }, 'Zero amount');
+
+        let total = self.total_collateral.read();
+        self.total_collateral.write(total + amount);
     }
 
     // Redeem winnings

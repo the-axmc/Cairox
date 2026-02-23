@@ -45,9 +45,38 @@ export ORACLE_CONTRACT_ADDRESS=0x...
 export RESOLUTION_VERIFIER_ADDRESS=0x...
 export ORACLE_PROPOSER_BOND=100
 export ORACLE_REQUIRE_SIGNED=1
+export ORACLE_SIGNER_PUBLIC_KEY=0x...
+export ORACLE_SIGNER_PRIVATE_KEY=0x...
+export ZK_VERIFIER_ADDRESS=0x...
+export ORACLE_ZK_PROOF_PATH=
+export ORACLE_ZK_PROOF_DIR=
+export ORACLE_ZK_PUBLIC_INPUTS_PATH=
 export STARKNET_RPC_URL=https://starknet-sepolia.public.blastapi.io/rpc/v0_8
 export GROWTH_API_URL=https://api.growthepie.com
 ```
+
+After deploying `ResolutionVerifier`, set the signer public key:
+
+```bash
+starkli invoke <RESOLUTION_VERIFIER_ADDRESS> set_signer_pubkey <ORACLE_SIGNER_PUBLIC_KEY>
+```
+
+If you have a deployed Groth16 BN254 verifier (Garaga), wire it in:
+
+```bash
+starkli invoke <RESOLUTION_VERIFIER_ADDRESS> set_zk_verifier <ZK_VERIFIER_ADDRESS>
+```
+
+To submit a Groth16 proof, set one of:
+
+- `ORACLE_ZK_PROOF_PATH` to a JSON file containing `full_proof_with_hints`, `calldata`, or `proof`,
+  or a plain-text file with whitespace-separated calldata integers.
+- `ORACLE_ZK_PROOF_DIR` to a folder with `market_id.json` files.
+
+If your proof JSON does not include `public_inputs`, set:
+- `ORACLE_ZK_PUBLIC_INPUTS_PATH` to the `public.json` output from snarkjs (or an array of integers).
+
+The expected public input order is: `[market_id, outcome, data_hash]`.
 
 ## Market Specifications
 

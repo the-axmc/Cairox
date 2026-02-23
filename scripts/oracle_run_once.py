@@ -188,6 +188,7 @@ class OracleRunner:
                 {"name": "market_id", "type": "felt"},
                 {"name": "outcome", "type": "felt"},
                 {"name": "data_hash", "type": "felt"},
+                {"name": "bond", "type": "u256"},
                 {"name": "zk_proof", "type": "felt*"}
             ], "type": "function"},
             {"name": "fast_finalize", "inputs": [

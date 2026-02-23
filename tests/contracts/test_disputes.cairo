@@ -61,6 +61,7 @@ func test_dispute_blocks_finalize() {
     let proposer_bond = min_proposer_bond();
     
     // Propose from authorized reporter
+    oracle.register_market(market_id: market_id);
     oracle.propose(
         market_id: market_id,
         outcome: outcome,
@@ -102,6 +103,7 @@ func test_bond_transfer() {
     let dispute_bond = min_dispute_bond();
     
     // 1. Propose with bond
+    oracle.register_market(market_id: market_id);
     oracle.propose(
         market_id: market_id,
         outcome: outcome,
@@ -153,6 +155,7 @@ func test_arbitration_resolution() {
     let data_uri = s'metadata';
     let proposer_bond = min_proposer_bond();
     
+    oracle.register_market(market_id: market_id);
     oracle.propose(
         market_id: market_id,
         outcome: outcome,
@@ -203,6 +206,7 @@ func test_non_disputed_finalize() {
     let data_uri = s'metadata';
     let proposer_bond = min_proposer_bond();
     
+    oracle.register_market(market_id: market_id);
     oracle.propose(
         market_id: market_id,
         outcome: outcome,
@@ -252,6 +256,7 @@ func test_disputed_proposal_cannot_be_finalized() {
     let proposer_bond = min_proposer_bond();
     
     // Propose
+    oracle.register_market(market_id: market_id);
     oracle.propose(
         market_id: market_id,
         outcome: outcome,
@@ -283,6 +288,7 @@ func test_non_disputed_finalizes_after_window() {
     let proposer_bond = min_proposer_bond();
     
     // Propose
+    oracle.register_market(market_id: market_id);
     oracle.propose(
         market_id: market_id,
         outcome: outcome,
@@ -319,6 +325,7 @@ func test_arbitration_only_by_arbiter() {
     let proposer_bond = min_proposer_bond();
     
     // Propose
+    oracle.register_market(market_id: market_id);
     oracle.propose(
         market_id: market_id,
         outcome: outcome,
@@ -358,6 +365,7 @@ func test_cannot_dispute_already_disputed() {
     let proposer_bond = min_proposer_bond();
     
     // Propose
+    oracle.register_market(market_id: market_id);
     oracle.propose(
         market_id: market_id,
         outcome: outcome,
@@ -390,6 +398,7 @@ func test_dispute_wrong_state() {
     let proposer_bond = min_proposer_bond();
     
     // Propose
+    oracle.register_market(market_id: market_id);
     oracle.propose(
         market_id: market_id,
         outcome: outcome,
@@ -429,6 +438,7 @@ func test_propose_wrong_state() {
     let proposer_bond = min_proposer_bond();
     
     // First propose
+    oracle.register_market(market_id: market_id);
     oracle.propose(
         market_id: market_id,
         outcome: outcome,
@@ -438,6 +448,7 @@ func test_propose_wrong_state() {
     );
     
     // Second propose (should fail - market already exists)
+    oracle.register_market(market_id: market_id);
     oracle.propose(
         market_id: market_id,
         outcome: outcome,
@@ -478,6 +489,7 @@ func test_propose_bond_too_low() {
     let low_bond = u256_value(50);  // Below minimum of 100
     
     // Propose with insufficient bond
+    oracle.register_market(market_id: market_id);
     oracle.propose(
         market_id: market_id,
         outcome: outcome,
@@ -501,6 +513,7 @@ func test_dispute_bond_too_low() {
     let proposer_bond = min_proposer_bond();
     
     // Propose first
+    oracle.register_market(market_id: market_id);
     oracle.propose(
         market_id: market_id,
         outcome: outcome,
@@ -529,6 +542,7 @@ func test_arbitration_outcome_validation() {
     let proposer_bond = min_proposer_bond();
     
     // Propose
+    oracle.register_market(market_id: market_id);
     oracle.propose(
         market_id: market_id,
         outcome: proposed_outcome,

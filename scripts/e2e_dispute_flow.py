@@ -149,6 +149,17 @@ async def propose_market(
     # Encode bond as u256
     bond_low = bond_amount & ((1 << 128) - 1)
     bond_high = bond_amount >> 128
+
+    # Ensure market is registered (owner/factory only)
+    try:
+        reg_tx = await oracle.functions["register_market"].invoke(
+            market_id=market_id_felt,
+            max_fee=int(1e16)
+        )
+        await account.client.wait_for_tx(reg_tx.transaction_hash)
+    except Exception:
+        # Likely already registered or not authorized
+        pass
     
     # Call oracle.propose()
     call = Call(

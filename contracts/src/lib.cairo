@@ -3,6 +3,7 @@ mod oracle;
 mod arbitration;
 mod resolution_verifier;
 mod optimistic_oracle;
+mod dummy_oracle;
 mod collateral_vault;
 mod outcome_token;
 mod stablecoin;

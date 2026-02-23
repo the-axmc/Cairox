@@ -66,10 +66,11 @@ FEES_THRESHOLD = 1_000_000_000_000  # 1e12
 class E2ETestnetRunner:
     """E2E testnet runner for Cairox DAA cycle."""
     
-    def __init__(self, rpc_url: str, account_address: str, private_key: str):
+    def __init__(self, rpc_url: str, account_address: str, private_key: str, initial_subsidy: int):
         self.rpc_url = rpc_url
         self.account_address = account_address
         self.private_key = private_key
+        self.initial_subsidy = initial_subsidy
         self.client = None
         self.account = None
         self.oracle_contract = None
@@ -186,6 +187,9 @@ class E2ETestnetRunner:
     def _get_oracle_abi(self) -> List[Dict]:
         """Get OptimisticOracle ABI."""
         return [
+            {"name": "set_market_factory", "inputs": [
+                {"name": "market_factory", "type": "felt"}
+            ], "type": "function"},
             {"name": "propose", "inputs": [
                 {"name": "market_id", "type": "felt"},
                 {"name": "outcome", "type": "felt"},
@@ -213,7 +217,8 @@ class E2ETestnetRunner:
         """Get MarketFactory ABI."""
         return [
             {"name": "create_market", "inputs": [
-                {"name": "question", "type": "felt"}
+                {"name": "question", "type": "felt"},
+                {"name": "initial_subsidy", "type": "u256"}
             ], "type": "function", "outputs": [
                 {"name": "market_id", "type": "u256"}
             ]},
@@ -247,6 +252,9 @@ class E2ETestnetRunner:
         if isinstance(value, (list, tuple)) and len(value) == 2:
             return int(value[0]) + (int(value[1]) << 128)
         return int(value)
+
+    def _to_u256(self, value: int) -> Dict:
+        return {"low": value & ((1 << 128) - 1), "high": value >> 128}
     
     def _get_vault_abi(self) -> List[Dict]:
         """Get CollateralVault ABI."""
@@ -277,6 +285,12 @@ class E2ETestnetRunner:
             {"name": "decimals", "inputs": [], "type": "function", "outputs": [
                 {"name": "decimals", "type": "u8"}
             ]},
+            {"name": "approve", "inputs": [
+                {"name": "spender", "type": "felt"},
+                {"name": "amount", "type": "u256"}
+            ], "type": "function", "outputs": [
+                {"name": "ok", "type": "bool"}
+            ]},
             {"name": "transfer", "inputs": [
                 {"name": "to", "type": "felt"},
                 {"name": "amount", "type": "u256"}
@@ -293,11 +307,39 @@ class E2ETestnetRunner:
         
         try:
             count_before = await self.market_factory.functions["get_market_count"].call()
-            count_before_int = self._u256_to_int(count_before)
+            count_before_value = count_before
+            if isinstance(count_before, dict):
+                count_before_value = count_before.get("count", count_before)
+            elif hasattr(count_before, "count"):
+                count_before_value = count_before.count
+            count_before_int = self._u256_to_int(count_before_value)
 
             question = encode_felt("DAA >= threshold?")
+
+            if self.oracle_contract and self.market_factory:
+                try:
+                    set_tx = await self.oracle_contract.functions["set_market_factory"].invoke(
+                        market_factory=int(self.market_factory.address),
+                        max_fee=int(1e16)
+                    )
+                    await wait_for_tx(self.client, set_tx.transaction_hash)
+                except Exception as e:
+                    print(f"  ⚠ Failed to set market factory on oracle: {e}")
+
+            if self.stablecoin_token:
+                try:
+                    approve_tx = await self.stablecoin_token.functions["approve"].invoke(
+                        spender=int(self.market_factory.address),
+                        amount=self._to_u256(self.initial_subsidy),
+                        max_fee=int(1e16)
+                    )
+                    await wait_for_tx(self.client, approve_tx.transaction_hash)
+                except Exception as e:
+                    print(f"  ⚠ Failed to approve subsidy: {e}")
+
             result = await self.market_factory.functions["create_market"].invoke(
                 question=question,
+                initial_subsidy=self._to_u256(self.initial_subsidy),
                 max_fee=int(1e17)
             )
 
@@ -310,9 +352,14 @@ class E2ETestnetRunner:
             self.daa_market_id = count_before_int
             print(f"  ✓ DAA Market ID: {self.daa_market_id}")
 
-            market_addr = await self.market_factory.functions["get_market"].call(
+            market_addr_raw = await self.market_factory.functions["get_market"].call(
                 market_id={"low": self.daa_market_id, "high": 0}
             )
+            market_addr = market_addr_raw
+            if isinstance(market_addr_raw, dict):
+                market_addr = market_addr_raw.get("market_address", market_addr_raw)
+            elif hasattr(market_addr_raw, "market_address"):
+                market_addr = market_addr_raw.market_address
             self.daa_market_address = int(market_addr)
             self.daa_market_contract = Contract(
                 address=self.daa_market_address,
@@ -647,6 +694,12 @@ async def main():
         default=DEFAULT_PRIVATE_KEY,
         help=f"Private key (default: {DEFAULT_PRIVATE_KEY})"
     )
+    parser.add_argument(
+        "--initial-subsidy",
+        default=int(os.getenv("INITIAL_SUBSIDY", "1000000")),
+        type=int,
+        help="Initial LMSR subsidy (base units)"
+    )
     
     args = parser.parse_args()
     
@@ -663,7 +716,8 @@ async def main():
     runner = E2ETestnetRunner(
         rpc_url=args.rpc_url,
         account_address=account_addr,
-        private_key=private_key
+        private_key=private_key,
+        initial_subsidy=args.initial_subsidy
     )
     
     success = await runner.run()

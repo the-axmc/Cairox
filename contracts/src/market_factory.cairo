@@ -7,9 +7,39 @@ trait IOutcomeToken<TContractState> {
     fn transfer_ownership(ref self: TContractState, new_owner: felt252);
 }
 
+#[starknet::interface]
+trait IERC20<TContractState> {
+    fn transfer_from(
+        ref self: TContractState,
+        from: ContractAddress,
+        to: ContractAddress,
+        amount: u256
+    ) -> bool;
+}
+
+#[starknet::interface]
+trait ILMSRMarketMaker<TContractState> {
+    fn get_initial_cost(self: @TContractState, b: u256) -> u256;
+}
+
+#[starknet::interface]
+trait IMarket<TContractState> {
+    fn seed_collateral(ref self: TContractState, amount: u256);
+}
+
+#[starknet::interface]
+trait IOptimisticOracle<TContractState> {
+    fn register_market(ref self: TContractState, market_id: felt252);
+}
+
 #[starknet::contract]
 mod MarketFactory {
-    use super::{IOutcomeTokenDispatcher, IOutcomeTokenDispatcherTrait};
+    use super::{
+        IERC20Dispatcher, IERC20DispatcherTrait, ILMSRMarketMakerDispatcher,
+        ILMSRMarketMakerDispatcherTrait, IMarketDispatcher, IMarketDispatcherTrait,
+        IOptimisticOracleDispatcher, IOptimisticOracleDispatcherTrait, IOutcomeTokenDispatcher,
+        IOutcomeTokenDispatcherTrait,
+    };
     use core::array::Array;
     use core::array::ArrayTrait;
     use core::array::SpanTrait;
@@ -56,9 +86,16 @@ mod MarketFactory {
     }
 
     #[external(v0)]
-    fn create_market(ref self: ContractState, question: felt252) -> u256 {
+    fn create_market(ref self: ContractState, question: felt252, initial_subsidy: u256) -> u256 {
         let id = self.market_count.read();
         self.market_count.write(id + u256 { low: 1, high: 0 });
+
+        let lmsr_addr = self.lmsr_market_maker.read();
+        assert(lmsr_addr.value != 0, 'LMSR not set');
+        let b = self.b_param.read();
+        let lmsr = ILMSRMarketMakerDispatcher { contract_address: lmsr_addr };
+        let min_subsidy = lmsr.get_initial_cost(b);
+        assert(initial_subsidy >= min_subsidy, 'Insufficient subsidy');
 
         let factory_addr = starknet::get_contract_address();
         let token_class_hash = self.outcome_token_class_hash.read();
@@ -95,8 +132,7 @@ mod MarketFactory {
         market_calldata.append(self.collateral_token.read().into());
         market_calldata.append(yes_token.into());
         market_calldata.append(no_token.into());
-        market_calldata.append(self.lmsr_market_maker.read().into());
-        let b = self.b_param.read();
+        market_calldata.append(lmsr_addr.into());
         market_calldata.append(b.low.into());
         market_calldata.append(b.high.into());
         market_calldata.append(self.oracle.read().into());
@@ -115,6 +151,21 @@ mod MarketFactory {
         yes_dispatcher.transfer_ownership(market_addr.into());
         let no_dispatcher = IOutcomeTokenDispatcher { contract_address: no_token };
         no_dispatcher.transfer_ownership(market_addr.into());
+
+        if initial_subsidy > u256 { low: 0, high: 0 } {
+            let caller = starknet::get_caller_address();
+            let collateral = IERC20Dispatcher { contract_address: self.collateral_token.read() };
+            let ok = collateral.transfer_from(caller, market_addr, initial_subsidy);
+            assert(ok, 'Collateral transfer failed');
+            let market = IMarketDispatcher { contract_address: market_addr };
+            market.seed_collateral(initial_subsidy);
+        }
+
+        let oracle_addr = self.oracle.read();
+        if oracle_addr.value != 0 {
+            let oracle = IOptimisticOracleDispatcher { contract_address: oracle_addr };
+            oracle.register_market(id.low.into());
+        }
 
         // Store market address
         self.markets.write(id, market_addr);

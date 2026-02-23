@@ -301,7 +301,7 @@ async def main():
     print(f"  Oracle proposes: YES wins")
     await oracle.propose(
         MARKET_ID,
-        0,  # OUTCOME_YES
+        1,  # OUTCOME_YES
         starknet.encode_string("result.json"),
         starknet.encode_string("https://example.com/result.json"),
     ).invoke()

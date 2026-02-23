@@ -178,21 +178,49 @@ class OracleAgent:
             return None
         
         proof = None
+        data_hash = outcome.data_hash
+        data_uri = outcome.data_uri
         requires_proof = False
         if self.verifier_address:
             requires_proof = self.starknet.requires_proof(outcome.market_id)
         if requires_proof:
-            proof = self.resolver.build_proof(
+            proof_bundle = self.resolver.build_proof(
                 outcome=outcome.outcome,
                 raw_value=outcome.raw_value,
-                data_hash=outcome.data_hash
+                data_hash=outcome.data_hash,
+                market_id=outcome.market_id
             )
+            proof = proof_bundle.proof
+
+            if proof_bundle.public_inputs:
+                public_inputs = proof_bundle.public_inputs
+                if len(public_inputs) < 3:
+                    raise RuntimeError("ZK public inputs must include market_id, outcome, data_hash")
+
+                expected_market = self.resolver._market_id_to_felt(outcome.market_id)
+                expected_outcome = self.resolver._outcome_to_felt(outcome.outcome)
+                if public_inputs[0] != expected_market:
+                    raise RuntimeError("ZK public input market_id does not match outcome.market_id")
+                if public_inputs[1] != expected_outcome:
+                    raise RuntimeError("ZK public input outcome does not match computed outcome")
+
+                zk_data_hash = int(public_inputs[2])
+                if isinstance(data_hash, str):
+                    data_hash_felt = int(data_hash, 16) if data_hash.startswith("0x") else int(data_hash)
+                else:
+                    data_hash_felt = int(data_hash)
+
+                if zk_data_hash != data_hash_felt:
+                    if outcome.raw_data is None:
+                        raise RuntimeError("ZK data_hash mismatch and raw_data is missing")
+                    data_hash = hex(zk_data_hash)
+                    data_uri = self.resolver._store_data(outcome.raw_data, outcome.market_id, data_hash)
 
         return self.starknet.propose(
             market_id=outcome.market_id,
             outcome=outcome.outcome,
-            data_hash=outcome.data_hash,
-            data_uri=outcome.data_uri,
+            data_hash=data_hash,
+            data_uri=data_uri,
             bond=self.proposer_bond,
             proof=proof,
         )

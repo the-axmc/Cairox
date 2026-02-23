@@ -46,7 +46,10 @@ def to_u256(value: int) -> Dict:
 
 def get_factory_abi() -> List[Dict]:
     return [
-        {"name": "create_market", "inputs": [{"name": "question", "type": "felt"}], "type": "function", "outputs": [{"name": "market_id", "type": "u256"}]},
+        {"name": "create_market", "inputs": [
+            {"name": "question", "type": "felt"},
+            {"name": "initial_subsidy", "type": "u256"},
+        ], "type": "function", "outputs": [{"name": "market_id", "type": "u256"}]},
         {"name": "get_market_count", "inputs": [], "type": "function", "outputs": [{"name": "count", "type": "u256"}]},
         {"name": "get_market", "inputs": [{"name": "market_id", "type": "u256"}], "type": "function", "outputs": [{"name": "market_address", "type": "felt"}]},
     ]
@@ -54,6 +57,7 @@ def get_factory_abi() -> List[Dict]:
 
 def get_oracle_abi() -> List[Dict]:
     return [
+        {"name": "set_market_factory", "inputs": [{"name": "market_factory", "type": "felt"}], "type": "function"},
         {"name": "propose", "inputs": [
             {"name": "market_id", "type": "felt"},
             {"name": "outcome", "type": "felt"},
@@ -97,6 +101,7 @@ def parse_args():
     parser.add_argument("--stablecoin", default=os.getenv("STABLECOIN_TOKEN_ADDRESS", "0x0"))
     parser.add_argument("--bond", type=int, default=int(os.getenv("ORACLE_PROPOSER_BOND", "100")))
     parser.add_argument("--collateral", type=int, default=1_000_000)  # 1.0 with 6 decimals
+    parser.add_argument("--initial-subsidy", type=int, default=int(os.getenv("INITIAL_SUBSIDY", "1000000")))
     return parser.parse_args()
 
 
@@ -118,25 +123,61 @@ async def main():
     factory = Contract(address=int(args.factory, 16), abi=get_factory_abi(), provider=account)
     stablecoin = Contract(address=int(args.stablecoin, 16), abi=get_stablecoin_abi(), provider=account)
 
+    # Ensure oracle recognizes factory
+    try:
+        set_tx = await oracle.functions["set_market_factory"].invoke(
+            market_factory=int(args.factory, 16),
+            max_fee=int(1e16)
+        )
+        await wait_for_tx(client, set_tx.transaction_hash)
+    except Exception as e:
+        print(f"set_market_factory skipped/failed (owner-only): {e}")
+
     # Create market
     count_before = await factory.functions["get_market_count"].call()
     market_id = u256_to_int(count_before)
     question = encode_felt("E2E market")
-    tx = await factory.functions["create_market"].invoke(question=question, max_fee=int(1e17))
-    await wait_for_tx(client, tx.transaction_hash)
 
-    market_addr_raw = await factory.functions["get_market"].call(market_id=to_u256(market_id))
-    market_addr = market_addr_raw.get("market_address") if isinstance(market_addr_raw, dict) else market_addr_raw
-    market = Contract(address=int(market_addr), abi=get_market_abi(), provider=account)
-
-    # Mint + approve collateral
+    # Mint + approve subsidy
     try:
-        mint_tx = await stablecoin.functions["mint"].invoke(to=account.address, amount=to_u256(args.collateral), max_fee=int(1e16))
+        mint_tx = await stablecoin.functions["mint"].invoke(
+            to=account.address,
+            amount=to_u256(args.initial_subsidy + args.collateral),
+            max_fee=int(1e16)
+        )
         await wait_for_tx(client, mint_tx.transaction_hash)
     except Exception as e:
         print(f"Mint skipped/failed (owner-only): {e}")
 
-    approve_tx = await stablecoin.functions["approve"].invoke(spender=int(market_addr), amount=to_u256(args.collateral), max_fee=int(1e16))
+    subsidy_approve_tx = await stablecoin.functions["approve"].invoke(
+        spender=int(args.factory, 16),
+        amount=to_u256(args.initial_subsidy),
+        max_fee=int(1e16)
+    )
+    await wait_for_tx(client, subsidy_approve_tx.transaction_hash)
+
+    tx = await factory.functions["create_market"].invoke(
+        question=question,
+        initial_subsidy=to_u256(args.initial_subsidy),
+        max_fee=int(1e17)
+    )
+    await wait_for_tx(client, tx.transaction_hash)
+
+    market_addr_raw = await factory.functions["get_market"].call(market_id=to_u256(market_id))
+    if isinstance(market_addr_raw, dict):
+        market_addr = market_addr_raw.get("market_address", market_addr_raw)
+    elif hasattr(market_addr_raw, "market_address"):
+        market_addr = market_addr_raw.market_address
+    else:
+        market_addr = market_addr_raw
+    market = Contract(address=int(market_addr), abi=get_market_abi(), provider=account)
+
+    # Approve collateral for trading
+    approve_tx = await stablecoin.functions["approve"].invoke(
+        spender=int(market_addr),
+        amount=to_u256(args.collateral),
+        max_fee=int(1e16)
+    )
     await wait_for_tx(client, approve_tx.transaction_hash)
 
     # Buy YES

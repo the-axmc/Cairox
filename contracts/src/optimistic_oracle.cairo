@@ -49,6 +49,8 @@ mod OptimisticOracle {
         verifier: ContractAddress,
         bond_token: ContractAddress,
         reporters: Map<ContractAddress, bool>,
+        market_factory: ContractAddress,
+        registered: Map<felt252, bool>,
 
         min_proposer_bond: u256,
         min_dispute_bond: u256,
@@ -76,6 +78,7 @@ mod OptimisticOracle {
         self.verifier.write(ContractAddress { value: 0 });
         self.bond_token.write(bond_token);
         self.reporters.write(caller, true);
+        self.market_factory.write(ContractAddress { value: 0 });
         self.min_proposer_bond.write(u256 { low: 100, high: 0 });
         self.min_dispute_bond.write(u256 { low: 200, high: 0 });
         self.dispute_window.write(u256 { low: 300, high: 0 });
@@ -114,6 +117,28 @@ mod OptimisticOracle {
     }
 
     #[external(v0)]
+    fn set_market_factory(ref self: ContractState, market_factory: ContractAddress) {
+        let caller = starknet::get_caller_address();
+        let owner = self.owner.read();
+        assert(caller == owner, 'Not owner');
+        self.market_factory.write(market_factory);
+    }
+
+    #[external(v0)]
+    fn register_market(ref self: ContractState, market_id: felt252) {
+        let caller = starknet::get_caller_address();
+        let owner = self.owner.read();
+        let factory = self.market_factory.read();
+        assert(caller == owner | caller == factory, 'Not authorized');
+        let already = self.registered.read(market_id);
+        assert(!already, 'Market already registered');
+        self.registered.write(market_id, true);
+        self.status.write(market_id, STATE_PENDING);
+        self.disputed.write(market_id, false);
+        self.fast_path.write(market_id, false);
+    }
+
+    #[external(v0)]
     fn set_dispute_window(ref self: ContractState, window: u256) {
         let caller = starknet::get_caller_address();
         let owner = self.owner.read();
@@ -145,11 +170,12 @@ mod OptimisticOracle {
         market_id: felt252,
         outcome: felt252,
         data_hash: felt252,
+        bond: u256,
         zk_proof: Span<felt252>
     ) {
         let proof_len = zk_proof.len();
         assert((proof_len > 0) & (proof_len <= 1000), 'Invalid ZK proof size');
-        self.internal_propose(market_id, outcome, data_hash, 0, u256 { low: 100, high: 0 }, true);
+        self.internal_propose(market_id, outcome, data_hash, 0, bond, true);
 
         let verifier = self.verifier.read();
         if verifier.value != 0 {
@@ -273,6 +299,8 @@ mod OptimisticOracle {
         bond: u256,
         is_fast_path: bool
     ) {
+        let registered = self.registered.read(market_id);
+        assert(registered, 'Market not registered');
         let status = self.status.read(market_id);
         assert(status == STATE_PENDING, 'Market exists');
 
