@@ -17,6 +17,13 @@ fn user_address() -> ContractAddress {
     ContractAddress::from(0x223456789012345678901234567890123456789012345678901234567890123_u128)
 }
 
+fn u256_value(amount: u128) -> u256_lib::U256 {
+    u256_lib::U256 {
+        low: amount,
+        high: 0,
+    }
+}
+
 // Sample ZK proof (stubbed for v0 - just an array of felts)
 fn sample_valid_proof() -> Array<felt252> {
     let mut proof = Array::new();
@@ -146,6 +153,7 @@ fn test_optimistic_path_still_works() {
     // Note: Starknet's block_timestamp() is used in the contract
     
     // 3. Finalize works (normal path)
+    oracle.set_dispute_window(u256_value(0));
     oracle.finalize(market_id: market_id);
     
     // Verify status is RESOLVED
@@ -178,6 +186,7 @@ fn test_outcome_identical() {
     propose_optimistic(@mut oracle_optimistic, market_id_2, outcome);
     
     // Finalize via normal path (after dispute window)
+    oracle_optimistic.set_dispute_window(u256_value(0));
     oracle_optimistic.finalize(market_id: market_id_2);
     let status_optimistic = oracle_optimistic.get_market_status(market_id: market_id_2);
     
@@ -212,7 +221,6 @@ fn test_proof_hash_stored() {
 }
 
 #[test]
-#[should_revert]
 fn test_fast_finalize_disabled() {
     // Test that fast_finalize reverts when disabled
     
@@ -229,7 +237,9 @@ fn test_fast_finalize_disabled() {
     propose_with_proof(@mut oracle, market_id, outcome, proof.span());
     
     // Try to fast_finalize - in v0 it should work
-    // This test documents expected behavior for future versions
+    oracle.fast_finalize(market_id: market_id);
+    let status = oracle.get_market_status(market_id: market_id);
+    assert(status == 2, 'Market should be RESOLVED after fast_finalize');
 }
 
 #[test]
@@ -251,7 +261,6 @@ fn test_fast_finalize_market_not_in_fast_path() {
 }
 
 #[test]
-#[should_revert]
 fn test_fast_finalize_before_dispute_window_not_needed() {
     // Test that fast_finalize works without waiting for dispute window
     
@@ -274,7 +283,6 @@ fn test_fast_finalize_before_dispute_window_not_needed() {
 }
 
 #[test]
-#[should_revert]
 fn test_normal_finalize_on_fast_path_market() {
     // Test that normal finalize also works on fast-path markets
     
@@ -294,6 +302,7 @@ fn test_normal_finalize_on_fast_path_market() {
     // This tests that fast-path markets can also use the normal path if desired
     // Note: This behavior should be confirmed based on requirements
     // For now, we expect fast_finalize to be the primary path for fast-path markets
+    oracle.set_dispute_window(u256_value(0));
     oracle.finalize(market_id: market_id);
     
     // Verify resolved
@@ -395,6 +404,7 @@ fn test_multiple_markets_different_paths() {
     // Market 2: Normal path without proof
     let market_id_normal = 301;
     propose_optimistic(@mut oracle, market_id_normal, 1);
+    oracle.set_dispute_window(u256_value(0));
     oracle.finalize(market_id: market_id_normal);
     assert(oracle.get_market_status(market_id: market_id_normal) == 2, 'Normal path market should be resolved');
     
@@ -426,6 +436,7 @@ fn test_double_propose_same_market() {
 }
 
 #[test]
+#[should_revert]
 fn test_fast_finalize_idempotent() {
     // Test that fast_finalize can only be called once
     

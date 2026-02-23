@@ -108,6 +108,8 @@ func test_daa_above_threshold_resolves_yes() {
     // - Return YES if true, NO if false
     
     // Simulate arbiter resolution
+    oracle.set_arbiter(arbiter_address());
+
     starknet::set_caller_address(starknet::CallerAddress { value: arbiter_address().value });
     
     oracle.resolve_arbitration(
@@ -151,6 +153,8 @@ func test_daa_below_threshold_resolves_no() {
     assert(status == PROPOSED, 'Market should be in Proposed state');
     
     // Arbiter resolves with NO outcome
+    oracle.set_arbiter(arbiter_address());
+
     starknet::set_caller_address(starknet::CallerAddress { value: arbiter_address().value });
     
     oracle.resolve_arbitration(
@@ -207,6 +211,8 @@ func test_daa_resolution_with_data_verification() {
     assert(verified, 'DAA data should be verified');
     
     // Arbiter resolves based on verified DAA
+    oracle.set_arbiter(arbiter_address());
+
     starknet::set_caller_address(starknet::CallerAddress { value: arbiter_address().value });
     
     oracle.resolve_arbitration(
@@ -255,6 +261,8 @@ func test_txcount_resolution() {
     assert(verified, 'TXCount should be verified');
     
     // Arbiter resolves with YES (txcount >= threshold)
+    oracle.set_arbiter(arbiter_address());
+
     starknet::set_caller_address(starknet::CallerAddress { value: arbiter_address().value });
     
     oracle.resolve_arbitration(
@@ -303,6 +311,8 @@ func test_txcount_below_threshold_resolves_no() {
     assert(verified, 'TXCount should be verified');
     
     // Arbiter resolves with NO (txcount < threshold)
+    oracle.set_arbiter(arbiter_address());
+
     starknet::set_caller_address(starknet::CallerAddress { value: arbiter_address().value });
     
     oracle.resolve_arbitration(
@@ -351,6 +361,8 @@ func test_fees_resolution() {
     assert(verified, 'Fees should be verified');
     
     // Arbiter resolves with YES (fees >= threshold)
+    oracle.set_arbiter(arbiter_address());
+
     starknet::set_caller_address(starknet::CallerAddress { value: arbiter_address().value });
     
     oracle.resolve_arbitration(
@@ -399,6 +411,8 @@ func test_fees_below_threshold_resolves_no() {
     assert(verified, 'Fees should be verified');
     
     // Arbiter resolves with NO (fees < threshold)
+    oracle.set_arbiter(arbiter_address());
+
     starknet::set_caller_address(starknet::CallerAddress { value: arbiter_address().value });
     
     oracle.resolve_arbitration(

@@ -43,6 +43,8 @@ mod test {
         }
     }
 
+    const SCALE: u128 = 1_000_000_000_000_000_000_u128;
+
     pub fn u256_value_1e18() -> u256_lib::U256 {
         u256_lib::U256 {
             low: 1_000_000_000_000_000_000_u128,
@@ -96,6 +98,18 @@ mod test {
         // Verify price relationship
         // assert(new_yes_price > initial_yes_price, 'YES price increased');
         // assert(new_yes_price < b, 'YES price should be reasonable');
+    }
+
+    #[test]
+    fn test_lmsr_price_sum() {
+        let lmsr = LMSRMarketMaker::constructor();
+        let b = u256_value(1000);
+        let zero = u256_value(0);
+        let price_yes = lmsr.get_price(b, zero, zero, 1);
+        let price_no = lmsr.get_price(b, zero, zero, 0);
+        let sum = price_yes.low + price_no.low;
+        assert(sum > SCALE - 1_000_000_000_000_000_u128, 'Price sum too low');
+        assert(sum < SCALE + 1_000_000_000_000_000_u128, 'Price sum too high');
     }
 
     // Test roundtrip profit - buying and selling at same price should have loss

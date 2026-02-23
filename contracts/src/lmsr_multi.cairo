@@ -16,7 +16,8 @@ mod LMSRMulti {
 
     #[constructor]
     fn constructor(ref self: ContractState) {
-        self.owner.write(0);
+        let caller: felt252 = starknet::get_caller_address().into();
+        self.owner.write(caller);
     }
 
     #[external(v0)]

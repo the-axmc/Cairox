@@ -21,6 +21,7 @@ mod CairoxOracle {
         circuit_state: felt252,
         pause_reason: felt252,
         update_interval: u256,
+        authorized_updaters: Map<felt252, bool>,
         latest_values: Map<felt252, u256>,
         last_updated: Map<felt252, u256>,
         update_count: Map<felt252, u256>,
@@ -30,12 +31,13 @@ mod CairoxOracle {
 
     #[constructor]
     fn constructor(ref self: ContractState) {
-        let caller: felt252 = starknet::get_contract_address().into();
+        let caller: felt252 = starknet::get_caller_address().into();
         self.owner.write(caller);
         self.pending_owner.write(0);
         self.circuit_state.write(STATE_NORMAL);
         self.pause_reason.write(0);
         self.update_interval.write(u256 { low: 3600, high: 0 });
+        self.authorized_updaters.write(caller, true);
         self.total_updates.write(u256 { low: 0, high: 0 });
         self.failed_updates.write(u256 { low: 0, high: 0 });
     }
@@ -43,7 +45,7 @@ mod CairoxOracle {
     #[external(v0)]
     fn transfer_ownership(ref self: ContractState, new_owner: felt252) {
         let current = self.owner.read();
-        let caller: felt252 = starknet::get_contract_address().into();
+        let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
         self.pending_owner.write(new_owner);
     }
@@ -51,7 +53,7 @@ mod CairoxOracle {
     #[external(v0)]
     fn accept_ownership(ref self: ContractState) {
         let pending = self.pending_owner.read();
-        let caller: felt252 = starknet::get_contract_address().into();
+        let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == pending, 'Not pending');
         self.owner.write(pending);
         self.pending_owner.write(0);
@@ -60,7 +62,7 @@ mod CairoxOracle {
     #[external(v0)]
     fn pause_oracle(ref self: ContractState, reason: felt252) {
         let current = self.owner.read();
-        let caller: felt252 = starknet::get_contract_address().into();
+        let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
         self.circuit_state.write(STATE_PAUSED);
         self.pause_reason.write(reason);
@@ -69,7 +71,7 @@ mod CairoxOracle {
     #[external(v0)]
     fn resume(ref self: ContractState) {
         let current = self.owner.read();
-        let caller: felt252 = starknet::get_contract_address().into();
+        let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
         self.circuit_state.write(STATE_NORMAL);
         self.pause_reason.write(0);
@@ -78,14 +80,34 @@ mod CairoxOracle {
     #[external(v0)]
     fn set_update_interval(ref self: ContractState, interval: u256) {
         let current = self.owner.read();
-        let caller: felt252 = starknet::get_contract_address().into();
+        let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
         self.update_interval.write(interval);
     }
 
     #[external(v0)]
+    fn add_updater(ref self: ContractState, updater: felt252) {
+        let current = self.owner.read();
+        let caller: felt252 = starknet::get_caller_address().into();
+        assert(caller == current, 'Not owner');
+        self.authorized_updaters.write(updater, true);
+    }
+
+    #[external(v0)]
+    fn remove_updater(ref self: ContractState, updater: felt252) {
+        let current = self.owner.read();
+        let caller: felt252 = starknet::get_caller_address().into();
+        assert(caller == current, 'Not owner');
+        self.authorized_updaters.write(updater, false);
+    }
+
+    #[external(v0)]
     fn update_daw(ref self: ContractState, value: u256) {
         assert(self.circuit_state.read() == STATE_NORMAL, 'Paused');
+        let caller: felt252 = starknet::get_caller_address().into();
+        let owner = self.owner.read();
+        let authorized = self.authorized_updaters.read(caller);
+        assert(caller == owner | authorized, 'Not authorized');
         
         self.latest_values.write(METRIC_DAW, value);
         let timestamp: u256 = starknet::get_block_timestamp().into();
@@ -101,6 +123,10 @@ mod CairoxOracle {
     #[external(v0)]
     fn update_txs(ref self: ContractState, value: u256) {
         assert(self.circuit_state.read() == STATE_NORMAL, 'Paused');
+        let caller: felt252 = starknet::get_caller_address().into();
+        let owner = self.owner.read();
+        let authorized = self.authorized_updaters.read(caller);
+        assert(caller == owner | authorized, 'Not authorized');
         
         self.latest_values.write(METRIC_TXS, value);
         let timestamp: u256 = starknet::get_block_timestamp().into();
@@ -116,6 +142,10 @@ mod CairoxOracle {
     #[external(v0)]
     fn update_contracts(ref self: ContractState, value: u256) {
         assert(self.circuit_state.read() == STATE_NORMAL, 'Paused');
+        let caller: felt252 = starknet::get_caller_address().into();
+        let owner = self.owner.read();
+        let authorized = self.authorized_updaters.read(caller);
+        assert(caller == owner | authorized, 'Not authorized');
         
         self.latest_values.write(METRIC_CONTRACTS, value);
         let timestamp: u256 = starknet::get_block_timestamp().into();
@@ -131,6 +161,10 @@ mod CairoxOracle {
     #[external(v0)]
     fn update_tokens(ref self: ContractState, value: u256) {
         assert(self.circuit_state.read() == STATE_NORMAL, 'Paused');
+        let caller: felt252 = starknet::get_caller_address().into();
+        let owner = self.owner.read();
+        let authorized = self.authorized_updaters.read(caller);
+        assert(caller == owner | authorized, 'Not authorized');
         
         self.latest_values.write(METRIC_TOKENS, value);
         let timestamp: u256 = starknet::get_block_timestamp().into();
@@ -145,6 +179,10 @@ mod CairoxOracle {
 
     #[external(v0)]
     fn record_failure(ref self: ContractState) {
+        let caller: felt252 = starknet::get_caller_address().into();
+        let owner = self.owner.read();
+        let authorized = self.authorized_updaters.read(caller);
+        assert(caller == owner | authorized, 'Not authorized');
         let failed = self.failed_updates.read();
         self.failed_updates.write(failed + u256 { low: 1, high: 0 });
     }

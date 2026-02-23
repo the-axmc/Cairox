@@ -91,7 +91,7 @@ func test_dispute_blocks_finalize() {
 func test_bond_transfer() {
     // Setup: Oracle and arbitration contracts
     let mut oracle = OptimisticOracle::constructor();
-    let mut arbitration = Arbitration::constructor();
+    let _arbitration = Arbitration::constructor();
     
     let market_id = market_id_1();
     let outcome = s'YES';
@@ -119,13 +119,13 @@ func test_bond_transfer() {
     
     // 3. Arbitration resolves (proposer wins)
     // Need to call from arbiter address
+    oracle.set_arbiter(arbiter_address());
     let arbiter = arbiter_address();
     starknet::set_caller_address(starknet::CallerAddress { value: arbiter.value });
     
-    arbitration.resolve_dispute(
+    oracle.resolve_arbitration(
         market_id: market_id,
-        outcome: outcome,
-        proposer_wins: true
+        outcome: outcome
     );
     
     // 4. Verify: proposer gets their bond + dispute bond
@@ -172,6 +172,7 @@ func test_arbitration_resolution() {
     assert(is_disputed, 'Market should be disputed');
     
     // 3. Arbiter resolves with outcome
+    oracle.set_arbiter(arbiter_address());
     let arbiter = arbiter_address();
     starknet::set_caller_address(starknet::CallerAddress { value: arbiter.value });
     
@@ -226,9 +227,9 @@ func test_non_disputed_finalize() {
     // If the market hasn't been disputed, we can fast-forward time via mocking
     // But since we can't mock in snforge directly, this test documents the expected behavior
     
-    // 3. Finalize succeeds
-    // This would work if we could skip the time check
-    // In actual deployment, user would call finalize after dispute window passes
+    // 3. Finalize succeeds (set dispute window to 0 for test)
+    oracle.set_dispute_window(u256_value(0));
+    oracle.finalize(market_id: market_id);
     
     // 4. Verify: status = Resolved
     let final_status = oracle.get_market_status(market_id);
@@ -294,16 +295,12 @@ func test_non_disputed_finalizes_after_window() {
     assert(initial_status == 1, 'Initial status should be PROPOSED (1)');
     
     // Dispute window is 300 seconds by default
-    // In a real test, we would advance block_timestamp by 301 seconds
-    // For now, we'll verify the logic without time manipulation
+    // For tests, set it to 0 to allow finalize
+    oracle.set_dispute_window(u256_value(0));
+    oracle.finalize(market_id: market_id);
     
-    // The finalize function should check:
-    // 1. Market is in Proposed state
-    // 2. Market is not disputed
-    // 3. Dispute window has passed
-    
-    // Since we can't manipulate time in snforge tests easily,
-    // this test documents the expected behavior
+    let final_status = oracle.get_market_status(market_id);
+    assert(final_status == 2, 'Market status should be Resolved');
 }
 
 // ==================== Test: ArbitrationOnlyByArbiter ====================
@@ -335,6 +332,7 @@ func test_arbitration_only_by_arbiter() {
     oracle.dispute(market_id: market_id, bond: dispute_bond);
     
     // Try to resolve from a non-arbiter address
+    oracle.set_arbiter(arbiter_address());
     let random_user = proposer_address();
     starknet::set_caller_address(starknet::CallerAddress { value: random_user.value });
     
@@ -401,6 +399,7 @@ func test_dispute_wrong_state() {
     );
     
     // Resolve manually (without dispute) to change state
+    oracle.set_arbiter(arbiter_address());
     let arbiter = arbiter_address();
     starknet::set_caller_address(starknet::CallerAddress { value: arbiter.value });
     

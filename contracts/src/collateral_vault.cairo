@@ -17,7 +17,7 @@ mod CollateralVault {
 
     #[constructor]
     fn constructor(ref self: ContractState) {
-        let caller: felt252 = starknet::get_contract_address().into();
+        let caller: felt252 = starknet::get_caller_address().into();
         self.owner.write(caller);
         self.pending_owner.write(0);
         self.total_deposited.write(u256 { low: 0, high: 0 });
@@ -28,7 +28,7 @@ mod CollateralVault {
     #[external(v0)]
     fn transfer_ownership(ref self: ContractState, new_owner: felt252) {
         let current = self.owner.read();
-        let caller: felt252 = starknet::get_contract_address().into();
+        let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
         self.pending_owner.write(new_owner);
     }
@@ -36,7 +36,7 @@ mod CollateralVault {
     #[external(v0)]
     fn accept_ownership(ref self: ContractState) {
         let pending = self.pending_owner.read();
-        let caller: felt252 = starknet::get_contract_address().into();
+        let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == pending, 'Not pending owner');
         self.owner.write(pending);
         self.pending_owner.write(0);
@@ -46,7 +46,7 @@ mod CollateralVault {
     #[external(v0)]
     fn pause(ref self: ContractState) {
         let current = self.owner.read();
-        let caller: felt252 = starknet::get_contract_address().into();
+        let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
         self.paused.write(true);
     }
@@ -54,7 +54,7 @@ mod CollateralVault {
     #[external(v0)]
     fn unpause(ref self: ContractState) {
         let current = self.owner.read();
-        let caller: felt252 = starknet::get_contract_address().into();
+        let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
         self.paused.write(false);
     }
@@ -63,7 +63,7 @@ mod CollateralVault {
     fn deposit(ref self: ContractState, amount: u256) {
         assert(!self.paused.read(), 'Paused');
         
-        let caller: felt252 = starknet::get_contract_address().into();
+        let caller: felt252 = starknet::get_caller_address().into();
         let current = self.balances.read(caller);
         self.balances.write(caller, current + amount);
         
@@ -75,7 +75,7 @@ mod CollateralVault {
     fn withdraw(ref self: ContractState, amount: u256) {
         assert(!self.paused.read(), 'Paused');
         
-        let caller: felt252 = starknet::get_contract_address().into();
+        let caller: felt252 = starknet::get_caller_address().into();
         let current = self.balances.read(caller);
         assert(current >= amount, 'Insufficient balance');
         

@@ -30,7 +30,8 @@ mod Arbitration {
 
     #[constructor]
     fn constructor(ref self: ContractState) {
-        self.owner.write(0);
+        let caller: felt252 = starknet::get_caller_address().into();
+        self.owner.write(caller);
         self.min_dispute_interval.write(u256 { low: 3600, high: 0 });
         self.total_disputes.write(u256 { low: 0, high: 0 });
         self.resolved_disputes.write(u256 { low: 0, high: 0 });
@@ -40,7 +41,7 @@ mod Arbitration {
     #[external(v0)]
     fn transfer_ownership(ref self: ContractState, new_owner: felt252) {
         let current = self.owner.read();
-        let caller: felt252 = starknet::get_contract_address().into();
+        let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
         self.owner.write(new_owner);
     }
@@ -48,7 +49,7 @@ mod Arbitration {
     #[external(v0)]
     fn set_min_dispute_interval(ref self: ContractState, interval: u256) {
         let current = self.owner.read();
-        let caller: felt252 = starknet::get_contract_address().into();
+        let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
         self.min_dispute_interval.write(interval);
     }
@@ -72,7 +73,7 @@ mod Arbitration {
     #[external(v0)]
     fn resolve_dispute(ref self: ContractState, market: felt252, outcome: felt252) {
         let current = self.owner.read();
-        let caller: felt252 = starknet::get_contract_address().into();
+        let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
         
         assert(self.disputes.read(market) == STATUS_PENDING, 'Not pending');
@@ -88,7 +89,7 @@ mod Arbitration {
     #[external(v0)]
     fn reject_dispute(ref self: ContractState, market: felt252) {
         let current = self.owner.read();
-        let caller: felt252 = starknet::get_contract_address().into();
+        let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
         
         assert(self.disputes.read(market) == STATUS_PENDING, 'Not pending');

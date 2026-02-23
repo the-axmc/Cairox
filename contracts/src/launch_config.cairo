@@ -29,7 +29,7 @@ mod LaunchConfig {
 
     #[constructor]
     fn constructor(ref self: ContractState) {
-        let caller: felt252 = starknet::get_contract_address().into();
+        let caller: felt252 = starknet::get_caller_address().into();
         self.owner.write(caller);
         
         self.current_phase.write(PHASE_SEED);
@@ -47,7 +47,7 @@ mod LaunchConfig {
     #[external(v0)]
     fn transfer_ownership(ref self: ContractState, new_owner: felt252) {
         let current = self.owner.read();
-        let caller: felt252 = starknet::get_contract_address().into();
+        let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
         self.owner.write(new_owner);
     }
@@ -55,7 +55,7 @@ mod LaunchConfig {
     #[external(v0)]
     fn set_phase(ref self: ContractState, phase: felt252) {
         let current = self.owner.read();
-        let caller: felt252 = starknet::get_contract_address().into();
+        let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
         self.current_phase.write(phase);
     }
@@ -63,7 +63,7 @@ mod LaunchConfig {
     #[external(v0)]
     fn enable_controlled(ref self: ContractState) {
         let current = self.owner.read();
-        let caller: felt252 = starknet::get_contract_address().into();
+        let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
         self.current_phase.write(PHASE_CONTROLLED);
     }
@@ -71,7 +71,7 @@ mod LaunchConfig {
     #[external(v0)]
     fn enable_open(ref self: ContractState) {
         let current = self.owner.read();
-        let caller: felt252 = starknet::get_contract_address().into();
+        let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
         self.current_phase.write(PHASE_OPEN);
     }
@@ -79,7 +79,7 @@ mod LaunchConfig {
     #[external(v0)]
     fn set_limits(ref self: ContractState, max_bet: u256, max_volume: u256, b: u256) {
         let current = self.owner.read();
-        let caller: felt252 = starknet::get_contract_address().into();
+        let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
         self.max_bet_size.write(max_bet);
         self.max_total_volume.write(max_volume);
@@ -89,7 +89,7 @@ mod LaunchConfig {
     #[external(v0)]
     fn add_lp(ref self: ContractState, lp: felt252) {
         let current = self.owner.read();
-        let caller: felt252 = starknet::get_contract_address().into();
+        let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
         self.allowed_lps.write(lp, true);
     }
@@ -97,7 +97,7 @@ mod LaunchConfig {
     #[external(v0)]
     fn remove_lp(ref self: ContractState, lp: felt252) {
         let current = self.owner.read();
-        let caller: felt252 = starknet::get_contract_address().into();
+        let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
         self.allowed_lps.write(lp, false);
     }
@@ -105,7 +105,7 @@ mod LaunchConfig {
     #[external(v0)]
     fn add_trader(ref self: ContractState, trader: felt252) {
         let current = self.owner.read();
-        let caller: felt252 = starknet::get_contract_address().into();
+        let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
         self.allowed_traders.write(trader, true);
         let count = self.total_traders.read();
@@ -115,7 +115,7 @@ mod LaunchConfig {
     #[external(v0)]
     fn remove_trader(ref self: ContractState, trader: felt252) {
         let current = self.owner.read();
-        let caller: felt252 = starknet::get_contract_address().into();
+        let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
         self.allowed_traders.write(trader, false);
     }
@@ -123,7 +123,7 @@ mod LaunchConfig {
     #[external(v0)]
     fn toggle_allowlist(ref self: ContractState, enabled: bool) {
         let current = self.owner.read();
-        let caller: felt252 = starknet::get_contract_address().into();
+        let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
         self.allowlist_enabled.write(enabled);
     }
@@ -131,7 +131,7 @@ mod LaunchConfig {
     #[external(v0)]
     fn enable_permissionless_reporting(ref self: ContractState) {
         let current = self.owner.read();
-        let caller: felt252 = starknet::get_contract_address().into();
+        let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
         self.permissionless_reporting.write(true);
     }
@@ -139,7 +139,7 @@ mod LaunchConfig {
     #[external(v0)]
     fn enable_disputes(ref self: ContractState) {
         let current = self.owner.read();
-        let caller: felt252 = starknet::get_contract_address().into();
+        let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
         self.dispute_enabled.write(true);
     }

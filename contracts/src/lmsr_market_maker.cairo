@@ -6,6 +6,11 @@ mod LMSRMarketMaker {
     use starknet::storage::StoragePointerReadAccess;
     use starknet::storage::StoragePointerWriteAccess;
 
+    const SCALE: u128 = 1000000000000000000_u128; // 1e18
+    const E_SCALED: u128 = 2718281828459045235_u128; // e * 1e18
+    const MAX_EXP_INPUT: u128 = 10000000000000000000_u128; // 10 * 1e18
+    const EXP_TERMS: u128 = 10_u128;
+
     #[storage]
     struct Storage {
         owner: felt252,
@@ -14,7 +19,8 @@ mod LMSRMarketMaker {
 
     #[constructor]
     fn constructor(ref self: ContractState) {
-        self.owner.write(0);
+        let caller: felt252 = starknet::get_caller_address().into();
+        self.owner.write(caller);
     }
 
     #[external(v0)]
@@ -31,7 +37,32 @@ mod LMSRMarketMaker {
         outcome: felt252,
         collateral: u256
     ) -> u256 {
-        collateral
+        assert(outcome == 0 | outcome == 1, 'Invalid outcome');
+        let b_u = Self::u256_to_u128(b);
+        assert(b_u > 0, 'b=0');
+        let yes_u = Self::u256_to_u128(yes_supply);
+        let no_u = Self::u256_to_u128(no_supply);
+        let collateral_u = Self::u256_to_u128(collateral);
+
+        let (q_buy, q_other) = if outcome == 1 { (yes_u, no_u) } else { (no_u, yes_u) };
+
+        let exp_buy = Self::exp_ratio(q_buy, b_u);
+        let exp_other = Self::exp_ratio(q_other, b_u);
+        let sum = exp_buy + exp_other;
+
+        let cost_fp = Self::mul_div(collateral_u, SCALE, b_u);
+        assert(cost_fp <= MAX_EXP_INPUT, 'exp overflow');
+        let exp_cost = Self::exp_fp(cost_fp);
+
+        // exp(delta/b) = (exp(cost/b) * (exp(q_buy/b)+exp(q_other/b)) - exp(q_other/b)) / exp(q_buy/b)
+        let term = Self::mul_div(exp_cost, sum, SCALE);
+        assert(term > exp_other, 'Invalid collateral');
+        let numerator = term - exp_other;
+        let ratio = Self::mul_div(numerator, SCALE, exp_buy);
+        let ln_ratio = Self::ln_fp(ratio);
+        let delta = Self::mul_div(b_u, ln_ratio, SCALE);
+
+        u256 { low: delta, high: 0 }
     }
 
     #[external(v0)]
@@ -43,7 +74,22 @@ mod LMSRMarketMaker {
         outcome: felt252,
         tokens: u256
     ) -> u256 {
-        tokens
+        assert(outcome == 0 | outcome == 1, 'Invalid outcome');
+        let b_u = Self::u256_to_u128(b);
+        assert(b_u > 0, 'b=0');
+        let yes_u = Self::u256_to_u128(yes_supply);
+        let no_u = Self::u256_to_u128(no_supply);
+        let tokens_u = Self::u256_to_u128(tokens);
+
+        let (q_sell, q_other) = if outcome == 1 { (yes_u, no_u) } else { (no_u, yes_u) };
+        assert(q_sell >= tokens_u, 'Insufficient supply');
+
+        let cost_before = Self::cost(b_u, q_sell, q_other);
+        let cost_after = Self::cost(b_u, q_sell - tokens_u, q_other);
+        assert(cost_before >= cost_after, 'Invalid cost');
+        let collateral_out = cost_before - cost_after;
+
+        u256 { low: collateral_out, high: 0 }
     }
 
     #[external(v0)]
@@ -54,6 +100,98 @@ mod LMSRMarketMaker {
         no_supply: u256,
         outcome: felt252
     ) -> u256 {
-        u256 { low: 50, high: 0 }
+        assert(outcome == 0 | outcome == 1, 'Invalid outcome');
+        let b_u = Self::u256_to_u128(b);
+        assert(b_u > 0, 'b=0');
+        let yes_u = Self::u256_to_u128(yes_supply);
+        let no_u = Self::u256_to_u128(no_supply);
+
+        let exp_yes = Self::exp_ratio(yes_u, b_u);
+        let exp_no = Self::exp_ratio(no_u, b_u);
+        let sum = exp_yes + exp_no;
+        let price = if outcome == 1 {
+            Self::mul_div(exp_yes, SCALE, sum)
+        } else {
+            Self::mul_div(exp_no, SCALE, sum)
+        };
+        u256 { low: price, high: 0 }
+    }
+
+    fn u256_to_u128(x: u256) -> u128 {
+        assert(x.high == 0, 'u256 overflow');
+        x.low
+    }
+
+    fn mul_div(a: u128, b: u128, denom: u128) -> u128 {
+        assert(denom != 0, 'div by zero');
+        a * b / denom
+    }
+
+    fn exp_ratio(q: u128, b: u128) -> u128 {
+        let x = Self::mul_div(q, SCALE, b);
+        assert(x <= MAX_EXP_INPUT, 'exp overflow');
+        Self::exp_fp(x)
+    }
+
+    fn exp_fp(x: u128) -> u128 {
+        // Split x into integer and fractional parts to extend range
+        let k = x / SCALE;
+        assert(k <= 10, 'exp overflow');
+        let r = x - k * SCALE;
+        let mut result = Self::exp_series(r);
+        let mut i = 0_u128;
+        loop {
+            if i >= k {
+                break;
+            }
+            result = Self::mul_div(result, E_SCALED, SCALE);
+            i += 1;
+        };
+        result
+    }
+
+    fn exp_series(r: u128) -> u128 {
+        let mut term = SCALE;
+        let mut sum = SCALE;
+        let mut i = 1_u128;
+        loop {
+            if i > EXP_TERMS {
+                break;
+            }
+            term = Self::mul_div(term, r, SCALE);
+            term = term / i;
+            sum = sum + term;
+            i += 1;
+        };
+        sum
+    }
+
+    fn ln_fp(y: u128) -> u128 {
+        assert(y > 0, 'ln undefined');
+        let mut low = 0_u128;
+        let mut high = MAX_EXP_INPUT;
+        let mut i = 0_u32;
+        loop {
+            if i >= 64 {
+                break;
+            }
+            let mid = (low + high) / 2;
+            let exp_mid = Self::exp_fp(mid);
+            if exp_mid > y {
+                high = mid;
+            } else {
+                low = mid;
+            }
+            i += 1;
+        };
+        low
+    }
+
+    fn cost(b: u128, q_yes: u128, q_no: u128) -> u128 {
+        let exp_yes = Self::exp_ratio(q_yes, b);
+        let exp_no = Self::exp_ratio(q_no, b);
+        let sum = exp_yes + exp_no;
+        let ln_sum = Self::ln_fp(sum);
+        Self::mul_div(b, ln_sum, SCALE)
     }
 }
