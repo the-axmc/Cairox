@@ -61,6 +61,12 @@ After deploying `ResolutionVerifier`, set the signer public key:
 starkli invoke <RESOLUTION_VERIFIER_ADDRESS> set_signer_pubkey <ORACLE_SIGNER_PUBLIC_KEY>
 ```
 
+Signed attestation mode (no ZK):
+- Ensure `ResolutionVerifier` has `zk_verifier` unset (0 address).
+- Set `set_requires_proof(market_id, true)` so `propose_with_proof` is required.
+- The agent will submit `proof=[data_hash_felt, sig_r, sig_s]` and on-chain signature verification
+  will be enforced.
+
 If you have a deployed Groth16 BN254 verifier (Garaga), wire it in:
 
 ```bash

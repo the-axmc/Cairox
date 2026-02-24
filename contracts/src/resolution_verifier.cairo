@@ -197,14 +197,6 @@ mod ResolutionVerifier {
         sig_s: felt252
     ) -> bool {
         let msg_hash = message_hash(market_id, outcome, data_hash);
-        let ord = stark_curve::ORDER;
-        if sig_r >= ord || sig_s >= ord {
-            return false;
-        }
-        // Prevent malleability by enforcing low-s
-        if sig_s > (ord / 2) {
-            return false;
-        }
         check_ecdsa_signature(msg_hash, pubkey, sig_r, sig_s)
     }
 

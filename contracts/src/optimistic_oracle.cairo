@@ -26,11 +26,16 @@ trait IERC20<TContractState> {
     ) -> bool;
 }
 
+#[starknet::interface]
+trait IDataCommitment<TContractState> {
+    fn get_commitment(self: @TContractState, market_id: felt252) -> felt252;
+}
+
 #[starknet::contract]
 mod OptimisticOracle {
     use super::{
         IERC20Dispatcher, IERC20DispatcherTrait, IResolutionVerifierDispatcher,
-        IResolutionVerifierDispatcherTrait,
+        IResolutionVerifierDispatcherTrait, IDataCommitmentDispatcher, IDataCommitmentDispatcherTrait,
     };
     use core::array::SpanTrait;
     use core::box::BoxTrait;
@@ -53,6 +58,7 @@ mod OptimisticOracle {
         bond_token: ContractAddress,
         reporters: Map<ContractAddress, u8>,
         market_factory: ContractAddress,
+        data_commitment: ContractAddress,
         registered: Map<felt252, u8>,
 
         min_proposer_bond: u256,
@@ -82,6 +88,7 @@ mod OptimisticOracle {
         self.bond_token.write(bond_token);
         self.reporters.write(owner, 1);
         self.market_factory.write(zero_address());
+        self.data_commitment.write(zero_address());
         self.min_proposer_bond.write(u256 { low: 100, high: 0 });
         self.min_dispute_bond.write(u256 { low: 200, high: 0 });
         self.dispute_window.write(u256 { low: 300, high: 0 });
@@ -125,6 +132,14 @@ mod OptimisticOracle {
         let owner = self.owner.read();
         assert(caller == owner, 'Not owner');
         self.market_factory.write(market_factory);
+    }
+
+    #[external(v0)]
+    fn set_data_commitment(ref self: ContractState, commitment: ContractAddress) {
+        let caller = starknet::get_caller_address();
+        let owner = self.owner.read();
+        assert(caller == owner, 'Not owner');
+        self.data_commitment.write(commitment);
     }
 
     #[external(v0)]
@@ -306,6 +321,14 @@ mod OptimisticOracle {
         assert(registered == 1, 'Market not registered');
         let status = self.status.read(market_id);
         assert(status == STATE_PENDING, 'Market exists');
+
+        let commitment_addr = self.data_commitment.read();
+        if !is_zero_address(commitment_addr) {
+            let commitment = IDataCommitmentDispatcher { contract_address: commitment_addr };
+            let expected = commitment.get_commitment(market_id);
+            assert(expected != 0, 'No commitment');
+            assert(data_hash == expected, 'Data hash mismatch');
+        }
 
         let caller = starknet::get_caller_address();
         let is_reporter = self.reporters.read(caller);
