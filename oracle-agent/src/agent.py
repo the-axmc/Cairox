@@ -8,6 +8,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional
@@ -52,17 +53,26 @@ class OracleAgent:
         self.require_signed = os.getenv("ORACLE_REQUIRE_SIGNED", "1") == "1"
         self.verifier_address = os.getenv("RESOLUTION_VERIFIER_ADDRESS")
         self.commit_market_state = os.getenv("ORACLE_COMMIT_MARKET_STATE", "0") == "1"
+        self.commit_mode = os.getenv("ORACLE_COMMIT_MODE", "data_hash").lower()
+        self.wait_commitment = os.getenv("ORACLE_WAIT_COMMITMENT", "1") == "1"
+        self.debug = os.getenv("ORACLE_DEBUG", "0") == "1"
+        self.wait_finalize = os.getenv("ORACLE_WAIT_FINALIZE", "1") == "1"
+        self.finalize_timeout = int(os.getenv("ORACLE_FINALIZE_TIMEOUT", "600"))
+        self.finalize_poll = int(os.getenv("ORACLE_FINALIZE_POLL", "15"))
         self.market_address_env = os.getenv("ORACLE_MARKET_ADDRESS")
         self.market_address_map = os.getenv("ORACLE_MARKET_ADDRESSES_JSON")
         
-        # Initialize Starknet if credentials are available
+        # Initialize Starknet interface.
+        # If account creds are available, use starknet.py. Otherwise fall back to starkli.
+        from contracts import StarknetInterface
         if os.getenv("STARKNET_ACCOUNT_ADDRESS") and os.getenv("STARKNET_PRIVATE_KEY"):
-            from contracts import StarknetInterface
             self.starknet = StarknetInterface(
                 network=network,
                 account_address=os.getenv("STARKNET_ACCOUNT_ADDRESS"),
                 private_key=os.getenv("STARKNET_PRIVATE_KEY"),
             )
+        else:
+            self.starknet = StarknetInterface(network=network)
         
         # Load market specifications
         self._market_specs = self._load_market_specs()
@@ -173,11 +183,12 @@ class OracleAgent:
         """
         if self.starknet is None:
             print("Error: Starknet interface not initialized")
-            print("Set STARKNET_ACCOUNT_ADDRESS and STARKNET_PRIVATE_KEY environment variables")
             return None
 
         if self.require_signed and self.starknet.account is None:
             print("Error: Signed submissions required, but no account is configured")
+            print("Set STARKNET_ACCOUNT_ADDRESS and STARKNET_PRIVATE_KEY,")
+            print("or set ORACLE_REQUIRE_SIGNED=0 to allow starkli fallback.")
             return None
         
         if self.starknet.oracle_address is None:
@@ -186,10 +197,18 @@ class OracleAgent:
             return None
 
         if self.commit_market_state:
-            commit_result = self.commit_state_auto(outcome.market_id)
+            if self.commit_mode == "market_state":
+                commit_result = self.commit_state_auto(outcome.market_id)
+            else:
+                commit_result = self.commit_data_hash(outcome)
             if not commit_result or not commit_result.get("success"):
                 print(f"Error: Failed to commit market state: {commit_result}")
                 return None
+            if self.wait_commitment and commit_result.get("transaction_hash"):
+                wait = self.starknet.wait_for_tx(commit_result.get("transaction_hash"))
+                if not wait.get("success"):
+                    print(f"Error: Commitment tx not confirmed: {wait}")
+                    return None
         
         proof = None
         data_hash = outcome.data_hash
@@ -277,6 +296,33 @@ class OracleAgent:
         )
         sig_r, sig_s = self.resolver.sign_market_state(market_id, state_hash)
         return self.starknet.set_commitment_signed(market_id, state_hash, sig_r, sig_s)
+
+    def commit_data_hash(self, outcome: MarketOutcome) -> Optional[Dict]:
+        """
+        Commit the resolved data hash (required by OptimisticOracle).
+        Uses the DataCommitment contract signature flow.
+        """
+        if self.starknet is None:
+            print("Error: Starknet interface not initialized")
+            return None
+        if self.starknet.data_commitment_address is None:
+            print("Error: DataCommitment address not set (DATA_COMMITMENT_ADDRESS)")
+            return None
+        data_hash = outcome.data_hash
+        try:
+            data_hash_felt = int(data_hash, 16) if isinstance(data_hash, str) else int(data_hash)
+        except Exception:
+            print(f"Error: Invalid data_hash: {data_hash}")
+            return None
+        if self.debug:
+            print(f"Committing data_hash felt: {hex(data_hash_felt)}")
+        sig_r, sig_s = self.resolver.sign_market_state(outcome.market_id, data_hash_felt)
+        result = self.starknet.set_commitment_signed(outcome.market_id, data_hash_felt, sig_r, sig_s)
+        if self.debug:
+            committed = self.starknet.get_commitment(outcome.market_id)
+            if committed is not None:
+                print(f"On-chain commitment: {hex(committed)}")
+        return result
 
     def commit_state_from_market(self, market_id: str, market_address: str) -> Optional[Dict]:
         """
@@ -403,11 +449,42 @@ class OracleAgent:
         # Step 4: Finalize (if requested)
         if finalize:
             print("Finalizing market...")
-            # For now, just log that this would be done
-            print("Note: Finalization would require waiting for dispute window")
-            print("Use 'finalize' mode after the dispute period")
+            if self.starknet is None:
+                print("❌ Finalize failed: Starknet interface not initialized")
+                return None
+            if self.wait_finalize:
+                result = self.finalize_with_wait(market_id)
+            else:
+                result = self.starknet.finalize(market_id)
+            if not result or not result.get("success"):
+                print(f"❌ Finalize failed: {result.get('error') if result else 'Unknown error'}")
+            else:
+                print("✓ Finalized market")
+                print(f"  Transaction hash: {result.get('transaction_hash')}")
+                print(f"  Status: {result.get('status')}")
         
         return outcome
+
+    def finalize_with_wait(self, market_id: str) -> Optional[Dict]:
+        """
+        Attempt to finalize, waiting out dispute window if needed.
+        """
+        end = time.time() + self.finalize_timeout
+        while True:
+            result = self.starknet.finalize(market_id)
+            if result and result.get("success"):
+                tx_hash = result.get("transaction_hash")
+                if tx_hash:
+                    wait = self.starknet.wait_for_tx(tx_hash)
+                    if not wait.get("success"):
+                        return {"success": False, "error": f"Finalize tx not confirmed: {wait}"}
+                return result
+
+            err = (result or {}).get("error", "")
+            if "Dispute window" in err and time.time() < end:
+                time.sleep(self.finalize_poll)
+                continue
+            return result
 
     def is_market_due_for_resolution(self, market_id: str) -> bool:
         """

@@ -10,6 +10,8 @@ import json
 import os
 import subprocess
 import sys
+import time
+import re
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
@@ -51,6 +53,10 @@ class StarknetInterface:
         self.account_address = account_address or os.getenv("STARKNET_ACCOUNT_ADDRESS")
         self.private_key = private_key or os.getenv("STARKNET_PRIVATE_KEY")
         self.starkli_path = starkli_path
+        self.starkli_account = os.getenv("STARKLI_ACCOUNT") or os.getenv("STARKNET_ACCOUNT_FILE")
+        self.starkli_keystore = os.getenv("STARKLI_KEYSTORE") or os.getenv("STARKNET_KEYSTORE")
+        self.starkli_password = os.getenv("STARKLI_PASSWORD") or os.getenv("STARKNET_KEYSTORE_PASSWORD")
+        self.starkli_rpc = os.getenv("STARKNET_RPC") or os.getenv("STARKNET_RPC_URL")
         
         # Contract addresses (defaults - should be overridden)
         self.oracle_address = self._normalize_address(os.getenv("ORACLE_CONTRACT_ADDRESS"))
@@ -96,6 +102,27 @@ class StarknetInterface:
             "localhost": "http://127.0.0.1:5050",
         }
         return urls.get(self.network, urls["goerli"])
+
+    def _starkli_rpc_args(self) -> list:
+        """RPC args for starkli commands."""
+        rpc = self.starkli_rpc
+        if not rpc:
+            rpc = self._get_node_url()
+        return ["--rpc", rpc] if rpc else []
+
+    def _starkli_tx_args(self) -> list:
+        """Auth args for starkli state-changing commands."""
+        args = []
+        if self.starkli_account:
+            args.extend(["--account", self.starkli_account])
+        elif self.account_address:
+            args.extend(["--account", self._addr_str(self.account_address)])
+        if self.starkli_keystore:
+            args.extend(["--keystore", self.starkli_keystore])
+        if self.starkli_password:
+            args.extend(["--keystore-password", self.starkli_password])
+        args.extend(self._starkli_rpc_args())
+        return args
     
     def _get_chain_id(self) -> str:
         """Get chain ID based on network."""
@@ -129,8 +156,11 @@ class StarknetInterface:
             
             if result.returncode != 0:
                 raise RuntimeError(f"starkli failed: {result.stderr}")
-            
-            return result.stdout.strip()
+
+            stdout = result.stdout.strip() if result.stdout else ""
+            stderr = result.stderr.strip() if result.stderr else ""
+            # Some starkli versions print tx hashes to stderr (with warnings).
+            return stdout if stdout else stderr
         except FileNotFoundError:
             raise RuntimeError(
                 f"starkli not found. Please install starkli or set starkli_path."
@@ -200,6 +230,14 @@ class StarknetInterface:
             return int(raw, 16)
         return int(raw)
 
+    def _extract_tx_hash(self, output: str) -> Optional[str]:
+        if not output:
+            return None
+        match = re.search(r"0x[0-9a-fA-F]+", output)
+        if match:
+            return match.group(0)
+        return output.strip()
+
     def get_market_state(self, market_address: Union[str, int]) -> Dict[str, Any]:
         """
         Fetch market state from on-chain Market contract.
@@ -240,19 +278,19 @@ class StarknetInterface:
         try:
             yes_supply = self._call_starkli([
                 "call", self._addr_str(market_address), "get_yes_supply"
-            ])
+            ] + self._starkli_rpc_args())
             no_supply = self._call_starkli([
                 "call", self._addr_str(market_address), "get_no_supply"
-            ])
+            ] + self._starkli_rpc_args())
             b_param = self._call_starkli([
                 "call", self._addr_str(market_address), "get_b_param"
-            ])
+            ] + self._starkli_rpc_args())
             price_yes = self._call_starkli([
                 "call", self._addr_str(market_address), "get_yes_price"
-            ])
+            ] + self._starkli_rpc_args())
             price_no = self._call_starkli([
                 "call", self._addr_str(market_address), "get_no_price"
-            ])
+            ] + self._starkli_rpc_args())
             return {
                 "success": True,
                 "yes_supply": self._parse_starkli_u256(yes_supply),
@@ -429,11 +467,10 @@ class StarknetInterface:
             str(int(sig_r)),
             str(int(sig_s)),
         ]
-        if self.account_address:
-            cmd.extend(["--account", self.account_address])
+        cmd.extend(self._starkli_tx_args())
         try:
             output = self._call_starkli(cmd)
-            tx_hash = output.split("Transaction hash: ")[-1].strip() if "Transaction hash:" in output else output
+            tx_hash = self._extract_tx_hash(output)
             return {
                 "success": True,
                 "transaction_hash": tx_hash,
@@ -515,14 +552,11 @@ class StarknetInterface:
             str(bond_u256[0]),
             str(bond_u256[1]),
         ]
-        
-        # Add fee arguments if needed
-        if self.account_address:
-            cmd.extend(["--account", self.account_address])
+        cmd.extend(self._starkli_tx_args())
         
         try:
             output = self._call_starkli(cmd)
-            tx_hash = output.split("Transaction hash: ")[-1].strip() if "Transaction hash:" in output else output
+            tx_hash = self._extract_tx_hash(output)
             return {
                 "success": True,
                 "transaction_hash": tx_hash,
@@ -602,13 +636,11 @@ class StarknetInterface:
             str(bond_u256[1]),
             *proof_args,
         ]
-
-        if self.account_address:
-            cmd.extend(["--account", self.account_address])
+        cmd.extend(self._starkli_tx_args())
 
         try:
             output = self._call_starkli(cmd)
-            tx_hash = output.split("Transaction hash: ")[-1].strip() if "Transaction hash:" in output else output
+            tx_hash = self._extract_tx_hash(output)
             return {
                 "success": True,
                 "transaction_hash": tx_hash,
@@ -668,13 +700,11 @@ class StarknetInterface:
             "finalize",
             str(self._market_id_to_felt(market_id)),
         ]
-        
-        if self.account_address:
-            cmd.extend(["--account", self.account_address])
+        cmd.extend(self._starkli_tx_args())
         
         try:
             output = self._call_starkli(cmd)
-            tx_hash = output.split("Transaction hash: ")[-1].strip() if "Transaction hash:" in output else output
+            tx_hash = self._extract_tx_hash(output)
             return {
                 "success": True,
                 "transaction_hash": tx_hash,
@@ -686,6 +716,32 @@ class StarknetInterface:
                 "success": False,
                 "error": str(e),
             }
+
+    def wait_for_tx(self, tx_hash: Optional[str], timeout: int = 120, poll: int = 5) -> Dict[str, Any]:
+        """Wait for a transaction to reach finality using starkli receipt."""
+        if not tx_hash:
+            return {"success": False, "error": "Missing tx hash"}
+        start = time.time()
+        last_error = None
+        while time.time() - start < timeout:
+            try:
+                output = self._call_starkli(["receipt", tx_hash] + self._starkli_rpc_args())
+                try:
+                    data = json.loads(output)
+                except json.JSONDecodeError:
+                    data = {"raw": output}
+                exec_status = data.get("execution_status") or data.get("status")
+                finality = data.get("finality_status")
+                if exec_status in ("REVERTED", "REJECTED"):
+                    return {"success": False, "error": exec_status, "receipt": data}
+                if finality in ("ACCEPTED_ON_L2", "ACCEPTED_ON_L1"):
+                    return {"success": True, "receipt": data}
+                if exec_status == "SUCCEEDED":
+                    return {"success": True, "receipt": data}
+            except Exception as e:
+                last_error = str(e)
+            time.sleep(poll)
+        return {"success": False, "error": f"Timeout waiting for {tx_hash}. {last_error or ''}".strip()}
     
     def get_market_status(self, market_id: str) -> Dict[str, Any]:
         """
@@ -704,6 +760,21 @@ class StarknetInterface:
             return self._get_status_starknet_py(market_id)
         else:
             return self._get_status_starkli(market_id)
+
+    def get_commitment(self, market_id: str) -> Optional[int]:
+        """Get committed data hash from DataCommitment."""
+        if not self.data_commitment_address:
+            return None
+        try:
+            output = self._call_starkli([
+                "call",
+                self._addr_str(self.data_commitment_address),
+                "get_commitment",
+                str(self._market_id_to_felt(market_id)),
+            ] + self._starkli_rpc_args())
+            return self._parse_starkli_felt(output)
+        except Exception:
+            return None
     
     def _get_status_starknet_py(self, market_id: str) -> Dict[str, Any]:
         """Get status using starknet.py."""
@@ -763,7 +834,7 @@ class StarknetInterface:
                 self._addr_str(self.oracle_address),
                 "get_market_status",
                 str(self._market_id_to_felt(market_id)),
-            ])
+            ] + self._starkli_rpc_args())
             
             return {
                 "success": True,

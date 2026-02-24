@@ -15,28 +15,29 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
 try:
-    from starknet_py.utils.crypto.facade import pedersen_hash
+    from starknet_py.hash.utils import pedersen_hash, message_signature
 except Exception:
     try:
-        from starkware.crypto.signature.signature import pedersen_hash
+        from starkware.crypto.signature.signature import pedersen_hash, sign as message_signature
     except Exception:
         pedersen_hash = None
+        message_signature = None
 
 try:
-    from poseidon_py.poseidon_hash import poseidon_hash as poseidon_hash_many
+    from poseidon_py.poseidon_hash import poseidon_hash, poseidon_hash_many
 except Exception:
     try:
-        from poseidon_py import poseidon_hash as poseidon_hash_many
+        from poseidon_py import poseidon_hash
+        poseidon_hash_many = None
     except Exception:
+        poseidon_hash = None
         poseidon_hash_many = None
 
-try:
-    from starknet_py.utils.crypto.signature import sign as starknet_sign
-except Exception:
-    try:
-        from starkware.crypto.signature.signature import sign as starknet_sign
-    except Exception:
-        starknet_sign = None
+def _sign_message(msg_hash: int, priv_key: int) -> tuple[int, int]:
+    if message_signature is None:
+        raise RuntimeError("Signing not available. Install starknet-py or starkware-crypto.")
+    sig_r, sig_s = message_signature(msg_hash=msg_hash, priv_key=priv_key)
+    return int(sig_r), int(sig_s)
 
 
 class ResolutionRule(Enum):
@@ -165,6 +166,18 @@ class MarketResolver:
             elif isinstance(value, dict):
                 # Try to get a numeric value from the dict
                 value = next((v for v in value.values() if isinstance(v, (int, float))), value)
+        elif isinstance(value, dict):
+            # Handle normalized export responses like {"value": x, "raw": {...}}
+            if "value" in value:
+                value = value["value"]
+            elif "v" in value:
+                value = value["v"]
+            elif "raw" in value and isinstance(value["raw"], dict):
+                raw = value["raw"]
+                if "value" in raw:
+                    value = raw["value"]
+                elif "v" in raw:
+                    value = raw["v"]
 
         # Handle different aggregation methods
         if method == AggregationMethod.FIRST:
@@ -255,6 +268,23 @@ class MarketResolver:
     def _state_domain(self) -> int:
         return int.from_bytes("MSTATE".encode(), "big")
 
+    def _poseidon_hash_values(self, values: List[int]) -> int:
+        if poseidon_hash_many is not None:
+            try:
+                return int(poseidon_hash_many(values))
+            except TypeError:
+                pass
+        if poseidon_hash is None:
+            raise RuntimeError("poseidon hash not available. Install poseidon-py.")
+        if not values:
+            return 0
+        if len(values) == 1:
+            return int(values[0])
+        acc = int(poseidon_hash(int(values[0]), int(values[1])))
+        for v in values[2:]:
+            acc = int(poseidon_hash(acc, int(v)))
+        return acc
+
     def compute_market_state_hash(
         self,
         yes_supply: int,
@@ -264,8 +294,6 @@ class MarketResolver:
         price_no: int,
         timestamp: int,
     ) -> int:
-        if poseidon_hash_many is None:
-            raise RuntimeError("poseidon hash not available. Install poseidon-py.")
         values = [
             int(yes_supply),
             int(no_supply),
@@ -274,7 +302,7 @@ class MarketResolver:
             int(price_no),
             int(timestamp),
         ]
-        return int(poseidon_hash_many(values)) % self.STARKNET_PRIME
+        return int(self._poseidon_hash_values(values)) % self.STARKNET_PRIME
 
     def sign_market_state(
         self,
@@ -282,7 +310,7 @@ class MarketResolver:
         state_hash: int,
         private_key: Optional[str] = None
     ) -> tuple[int, int]:
-        if pedersen_hash is None or starknet_sign is None:
+        if pedersen_hash is None or message_signature is None:
             raise RuntimeError("Signing not available. Install starknet-py or starkware-crypto.")
         priv = private_key or os.getenv("ORACLE_SIGNER_PRIVATE_KEY") or os.getenv("STARKNET_PRIVATE_KEY")
         if not priv:
@@ -291,8 +319,7 @@ class MarketResolver:
         market_id_felt = self._market_id_to_felt(market_id)
         acc = pedersen_hash(market_id_felt, int(state_hash))
         msg_hash = pedersen_hash(acc, self._state_domain())
-        sig_r, sig_s = starknet_sign(msg_hash, priv_int)
-        return int(sig_r), int(sig_s)
+        return _sign_message(msg_hash, priv_int)
 
     def _message_hash(self, market_id: str, outcome: str, data_hash: str) -> int:
         if pedersen_hash is None:
@@ -368,7 +395,7 @@ class MarketResolver:
                 return ProofBundle(proof=proof_list, public_inputs=public_inputs)
             except Exception as exc:
                 raise RuntimeError(f"Failed to load ZK proof from {path}: {exc}") from exc
-        if starknet_sign is None:
+        if message_signature is None:
             raise RuntimeError("sign() not available. Install starknet-py or starkware-crypto.")
 
         private_key = os.getenv("ORACLE_SIGNER_PRIVATE_KEY") or os.getenv("STARKNET_PRIVATE_KEY")
@@ -377,7 +404,7 @@ class MarketResolver:
         priv = int(private_key, 16) if str(private_key).startswith("0x") else int(private_key)
 
         msg_hash = self._message_hash(market_id, outcome, data_hash)
-        sig_r, sig_s = starknet_sign(msg_hash, priv)
+        sig_r, sig_s = _sign_message(msg_hash, priv)
         data_hash_felt = int(data_hash, 16) if isinstance(data_hash, str) else int(data_hash)
         return ProofBundle(proof=[data_hash_felt, int(sig_r), int(sig_s)], public_inputs=None)
 
