@@ -6,14 +6,19 @@ use starknet::ContractAddress;
 mod DataCommitment {
     use super::ContractAddress;
     use core::box::BoxTrait;
+    use core::ecdsa::check_ecdsa_signature;
+    use core::pedersen::pedersen;
     use core::traits::TryInto;
     use starknet::storage::Map;
     use starknet::storage::StoragePointerReadAccess;
     use starknet::storage::StoragePointerWriteAccess;
 
+    const DOMAIN: felt252 = 'MSTATE';
+
     #[storage]
     struct Storage {
         owner: ContractAddress,
+        signer_pubkey: felt252,
         updaters: Map<ContractAddress, u8>,
         commitments: Map<felt252, felt252>,
         updated_at: Map<felt252, u256>,
@@ -23,7 +28,16 @@ mod DataCommitment {
     fn constructor(ref self: ContractState) {
         let owner = deployer_address();
         self.owner.write(owner);
+        self.signer_pubkey.write(0);
         self.updaters.write(owner, 1);
+    }
+
+    #[external(v0)]
+    fn set_signer_pubkey(ref self: ContractState, pubkey: felt252) {
+        let caller = starknet::get_caller_address();
+        let owner = self.owner.read();
+        assert(caller == owner, 'Not owner');
+        self.signer_pubkey.write(pubkey);
     }
 
     #[external(v0)]
@@ -55,6 +69,25 @@ mod DataCommitment {
     }
 
     #[external(v0)]
+    fn set_commitment_signed(
+        ref self: ContractState,
+        market_id: felt252,
+        data_hash: felt252,
+        sig_r: felt252,
+        sig_s: felt252
+    ) {
+        let pubkey = self.signer_pubkey.read();
+        assert(pubkey != 0, 'Signer not set');
+        assert(data_hash != 0, 'Empty hash');
+        let msg_hash = message_hash(market_id, data_hash);
+        let ok = check_ecdsa_signature(msg_hash, pubkey, sig_r, sig_s);
+        assert(ok, 'Invalid signature');
+        self.commitments.write(market_id, data_hash);
+        let now: u256 = starknet::get_block_timestamp().into();
+        self.updated_at.write(market_id, now);
+    }
+
+    #[external(v0)]
     fn get_commitment(self: @ContractState, market_id: felt252) -> felt252 {
         self.commitments.read(market_id)
     }
@@ -67,6 +100,11 @@ mod DataCommitment {
     #[external(v0)]
     fn get_owner(self: @ContractState) -> ContractAddress {
         self.owner.read()
+    }
+
+    fn message_hash(market_id: felt252, data_hash: felt252) -> felt252 {
+        let acc = pedersen(market_id, data_hash);
+        pedersen(acc, DOMAIN)
     }
 
     fn deployer_address() -> ContractAddress {

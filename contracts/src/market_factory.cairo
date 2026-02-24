@@ -5,7 +5,7 @@ use starknet::class_hash::ClassHash;
 
 #[starknet::interface]
 trait IOutcomeToken<TContractState> {
-    fn transfer_ownership(ref self: TContractState, new_owner: felt252);
+    fn transfer_ownership(ref self: TContractState, new_owner: ContractAddress);
 }
 
 #[starknet::interface]
@@ -151,9 +151,9 @@ mod MarketFactory {
 
         // Transfer outcome token ownership to the market contract
         let yes_dispatcher = IOutcomeTokenDispatcher { contract_address: yes_token };
-        yes_dispatcher.transfer_ownership(market_addr.into());
+        yes_dispatcher.transfer_ownership(market_addr);
         let no_dispatcher = IOutcomeTokenDispatcher { contract_address: no_token };
-        no_dispatcher.transfer_ownership(market_addr.into());
+        no_dispatcher.transfer_ownership(market_addr);
 
         let zero = u256 { low: 0, high: 0 };
         if initial_subsidy > zero {

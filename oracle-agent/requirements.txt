@@ -6,10 +6,11 @@ requests>=2.28.0
 # Starknet integration (optional - only needed for on-chain proposals)
 # Comment out if you don't need Starknet integration
 starknet-py>=0.5.0
-starkli>=0.2.0
+# starkli is a CLI tool (not a pip package). Install separately via https://get.starkli.sh
 
 # Utils
 python-dotenv>=1.0.0
+poseidon-py>=0.1.5
 
 # For local IPFS integration (optional)
 # ipfshttpclient>=0.4.8

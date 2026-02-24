@@ -14,6 +14,7 @@ Examples:
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -53,9 +54,25 @@ def main():
         type=str,
         help="Path to custom market specifications file"
     )
+    parser.add_argument(
+        "--market-address",
+        type=str,
+        help="Override market address for state commitments"
+    )
+    parser.add_argument(
+        "--market-addresses-json",
+        type=str,
+        help="JSON mapping of market_id to address"
+    )
     
     args = parser.parse_args()
     
+    # Override env for market address if provided
+    if args.market_address:
+        os.environ["ORACLE_MARKET_ADDRESS"] = args.market_address
+    if args.market_addresses_json:
+        os.environ["ORACLE_MARKET_ADDRESSES_JSON"] = args.market_addresses_json
+
     # Initialize agent
     agent = OracleAgent(network=args.network)
     

@@ -12,6 +12,7 @@
 - `min_trade_size`: Minimum trade allowed
 - `max_trade_size`: Maximum trade allowed
 - `resolution_delay`: Time before resolution allowed
+- `market_address` (optional): On-chain Market address used by the oracle agent for automatic state commitments
 
 ### Lifecycle
 1. **Created**: Market deployed with question

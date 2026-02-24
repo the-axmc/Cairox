@@ -51,6 +51,9 @@ class OracleAgent:
         self.proposer_bond = int(os.getenv("ORACLE_PROPOSER_BOND", "100"))
         self.require_signed = os.getenv("ORACLE_REQUIRE_SIGNED", "1") == "1"
         self.verifier_address = os.getenv("RESOLUTION_VERIFIER_ADDRESS")
+        self.commit_market_state = os.getenv("ORACLE_COMMIT_MARKET_STATE", "0") == "1"
+        self.market_address_env = os.getenv("ORACLE_MARKET_ADDRESS")
+        self.market_address_map = os.getenv("ORACLE_MARKET_ADDRESSES_JSON")
         
         # Initialize Starknet if credentials are available
         if os.getenv("STARKNET_ACCOUNT_ADDRESS") and os.getenv("STARKNET_PRIVATE_KEY"):
@@ -176,6 +179,12 @@ class OracleAgent:
             print("Error: Oracle contract address not set")
             print("Set ORACLE_CONTRACT_ADDRESS environment variable")
             return None
+
+        if self.commit_market_state:
+            commit_result = self.commit_state_auto(outcome.market_id)
+            if not commit_result or not commit_result.get("success"):
+                print(f"Error: Failed to commit market state: {commit_result}")
+                return None
         
         proof = None
         data_hash = outcome.data_hash
@@ -224,6 +233,93 @@ class OracleAgent:
             bond=self.proposer_bond,
             proof=proof,
         )
+
+    def commit_state_from_env(self, market_id: str) -> Optional[Dict]:
+        """
+        Commit signed market state hash using env-provided state.
+        Requires ORACLE_MARKET_STATE_JSON and ORACLE_SIGNER_PRIVATE_KEY.
+        """
+        if self.starknet is None:
+            print("Error: Starknet interface not initialized")
+            return None
+        if self.starknet.data_commitment_address is None:
+            print("Error: DataCommitment address not set (DATA_COMMITMENT_ADDRESS)")
+            return None
+
+        raw = os.getenv("ORACLE_MARKET_STATE_JSON")
+        if not raw:
+            print("Error: ORACLE_MARKET_STATE_JSON not set")
+            return None
+        try:
+            state = json.loads(raw)
+        except json.JSONDecodeError as e:
+            print(f"Error: Invalid ORACLE_MARKET_STATE_JSON: {e}")
+            return None
+
+        required = ["yes_supply", "no_supply", "b_param", "price_yes", "price_no", "timestamp"]
+        missing = [k for k in required if k not in state]
+        if missing:
+            print(f"Error: Missing market state fields: {missing}")
+            return None
+
+        state_hash = self.resolver.compute_market_state_hash(
+            yes_supply=state["yes_supply"],
+            no_supply=state["no_supply"],
+            b_param=state["b_param"],
+            price_yes=state["price_yes"],
+            price_no=state["price_no"],
+            timestamp=state["timestamp"],
+        )
+        sig_r, sig_s = self.resolver.sign_market_state(market_id, state_hash)
+        return self.starknet.set_commitment_signed(market_id, state_hash, sig_r, sig_s)
+
+    def commit_state_from_market(self, market_id: str, market_address: str) -> Optional[Dict]:
+        """
+        Fetch market state on-chain and commit signed state hash.
+        """
+        if self.starknet is None:
+            print("Error: Starknet interface not initialized")
+            return None
+        state = self.starknet.get_market_state(market_address)
+        if not state.get("success"):
+            print(f"Error: Failed to fetch market state: {state}")
+            return None
+        timestamp = int(datetime.utcnow().timestamp())
+        state_hash = self.resolver.compute_market_state_hash(
+            yes_supply=state["yes_supply"],
+            no_supply=state["no_supply"],
+            b_param=state["b_param"],
+            price_yes=state["price_yes"],
+            price_no=state["price_no"],
+            timestamp=timestamp,
+        )
+        sig_r, sig_s = self.resolver.sign_market_state(market_id, state_hash)
+        return self.starknet.set_commitment_signed(market_id, state_hash, sig_r, sig_s)
+
+    def commit_state_auto(self, market_id: str) -> Optional[Dict]:
+        """
+        Auto-commit state from market contract if address is available,
+        otherwise fall back to ORACLE_MARKET_STATE_JSON.
+        """
+        market_address = None
+        # 1) Spec-level address
+        spec = self.get_market_spec(market_id)
+        if spec and isinstance(spec, dict) and spec.get("market_address"):
+            market_address = spec.get("market_address")
+        # 2) Env mapping JSON
+        if market_address is None and self.market_address_map:
+            try:
+                mapping = json.loads(self.market_address_map)
+                market_address = mapping.get(market_id)
+            except json.JSONDecodeError:
+                market_address = None
+        # 3) Env single address
+        if market_address is None and self.market_address_env:
+            market_address = self.market_address_env
+
+        if market_address:
+            return self.commit_state_from_market(market_id, market_address)
+        return self.commit_state_from_env(market_id)
     
     def run_market(self, market_id: str, propose: bool = True, finalize: bool = False) -> Optional[MarketOutcome]:
         """

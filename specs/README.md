@@ -62,6 +62,7 @@ Example: `Which L2 has highest TVL?` with `category_field: "chain"`, `value_fiel
 | `name` | string | Human-readable market name |
 | `description` | string | Detailed market description |
 | `metadata` | object | Additional metadata |
+| `market_address` | string | Optional on-chain Market address for automatic state commitments |
 
 ## Deterministic Market ID
 

@@ -22,17 +22,24 @@ trait IGroth16VerifierBN254<TContractState> {
     ) -> Option<Span<u256>>;
 }
 
+#[starknet::interface]
+trait IDataCommitment<TContractState> {
+    fn get_commitment(self: @TContractState, market_id: felt252) -> felt252;
+}
+
 #[starknet::contract]
 mod ShieldedPool {
     use super::{
         IERC20Dispatcher, IERC20DispatcherTrait, IMarketDispatcher, IMarketDispatcherTrait,
         IGroth16VerifierBN254Dispatcher, IGroth16VerifierBN254DispatcherTrait,
+        IDataCommitmentDispatcher, IDataCommitmentDispatcherTrait,
     };
     use core::array::Span;
     use core::array::SpanTrait;
     use core::box::BoxTrait;
     use core::option::OptionTrait;
     use core::traits::TryInto;
+    use core::integer::u256_from_felt252;
     use starknet::ContractAddress;
     use starknet::storage::Map;
     use starknet::storage::StoragePointerReadAccess;
@@ -48,6 +55,7 @@ mod ShieldedPool {
         owner: ContractAddress,
         verifier: ContractAddress,
         collateral_token: ContractAddress,
+        data_commitment: ContractAddress,
         merkle_root: felt252,
         relayer_fee_bps: u16,
         locked: bool,
@@ -56,6 +64,7 @@ mod ShieldedPool {
     }
 
     #[event]
+    #[derive(Drop, starknet::Event)]
     enum Event {
         RootUpdated: RootUpdated,
         NullifierUsed: NullifierUsed,
@@ -96,6 +105,7 @@ mod ShieldedPool {
         self.owner.write(owner);
         self.collateral_token.write(collateral_token);
         self.verifier.write(verifier);
+        self.data_commitment.write(zero_address());
         self.merkle_root.write(initial_root);
         self.relayer_fee_bps.write(0);
         self.locked.write(false);
@@ -115,6 +125,14 @@ mod ShieldedPool {
         let owner = self.owner.read();
         assert(caller == owner, 'Not owner');
         self.markets.write(market_id, market);
+    }
+
+    #[external(v0)]
+    fn set_data_commitment(ref self: ContractState, commitment: ContractAddress) {
+        let caller = starknet::get_caller_address();
+        let owner = self.owner.read();
+        assert(caller == owner, 'Not owner');
+        self.data_commitment.write(commitment);
     }
 
     #[external(v0)]
@@ -141,6 +159,7 @@ mod ShieldedPool {
         old_root: felt252,
         new_root: felt252,
         nullifiers: Span<felt252>,
+        market_state_hash: felt252,
         action: felt252,
         market_id: felt252,
         outcome: felt252,
@@ -166,21 +185,24 @@ mod ShieldedPool {
         let inputs = inputs_opt.unwrap();
 
         // Expect fixed public inputs layout:
-        // [old_root, new_root, nullifier1, nullifier2, action, market_id, outcome,
+        // [old_root, new_root, nullifier1, nullifier2, market_state_hash, action, market_id, outcome,
         //  amount_low, amount_high, limit_low, limit_high, relayer, fee_low, fee_high]
-        assert(inputs.len() == 14, 'Invalid public inputs');
+        assert(inputs.len() == 15, 'Invalid public inputs');
         assert(*inputs.at(0) == old_root.into(), 'Input root mismatch');
         assert(*inputs.at(1) == new_root.into(), 'Input root mismatch');
-        assert(*inputs.at(4) == action.into(), 'Action mismatch');
-        assert(*inputs.at(5) == market_id.into(), 'Market mismatch');
-        assert(*inputs.at(6) == outcome.into(), 'Outcome mismatch');
-        assert(*inputs.at(7) == amount.low.into(), 'Amount mismatch');
-        assert(*inputs.at(8) == amount.high.into(), 'Amount mismatch');
-        assert(*inputs.at(9) == limit.low.into(), 'Limit mismatch');
-        assert(*inputs.at(10) == limit.high.into(), 'Limit mismatch');
-        assert(*inputs.at(11) == relayer.into(), 'Relayer mismatch');
-        assert(*inputs.at(12) == relayer_fee.low.into(), 'Fee mismatch');
-        assert(*inputs.at(13) == relayer_fee.high.into(), 'Fee mismatch');
+        assert(*inputs.at(4) == market_state_hash.into(), 'State hash mismatch');
+        assert(*inputs.at(5) == action.into(), 'Action mismatch');
+        assert(*inputs.at(6) == market_id.into(), 'Market mismatch');
+        assert(*inputs.at(7) == outcome.into(), 'Outcome mismatch');
+        assert(*inputs.at(8) == amount.low.into(), 'Amount mismatch');
+        assert(*inputs.at(9) == amount.high.into(), 'Amount mismatch');
+        assert(*inputs.at(10) == limit.low.into(), 'Limit mismatch');
+        assert(*inputs.at(11) == limit.high.into(), 'Limit mismatch');
+        let relayer_felt: felt252 = relayer.into();
+        let relayer_u = u256_from_felt252(relayer_felt);
+        assert(*inputs.at(12) == relayer_u, 'Relayer mismatch');
+        assert(*inputs.at(13) == relayer_fee.low.into(), 'Fee mismatch');
+        assert(*inputs.at(14) == relayer_fee.high.into(), 'Fee mismatch');
 
         // Validate and mark nullifiers (fixed to 2 for now).
         assert(nullifiers.len() == 2, 'Invalid nullifiers');
@@ -196,6 +218,15 @@ mod ShieldedPool {
         // Update root.
         self.merkle_root.write(new_root);
         self.emit(RootUpdated { old_root, new_root });
+
+        // Check committed market state hash if configured.
+        let commitment_addr = self.data_commitment.read();
+        if !is_zero_address(commitment_addr) {
+            let commitment = IDataCommitmentDispatcher { contract_address: commitment_addr };
+            let expected = commitment.get_commitment(market_id);
+            assert(expected != 0, 'No commitment');
+            assert(expected == market_state_hash, 'State commitment mismatch');
+        }
 
         // Execute market action as the pool.
         if action != ACTION_NONE {
@@ -215,7 +246,7 @@ mod ShieldedPool {
         }
 
         // Pay relayer fee (from pool collateral balance).
-        if relayer_fee > u256 { low: 0, high: 0 } {
+        if !is_zero_u256(relayer_fee) {
             let token = self.collateral_token.read();
             let erc20 = IERC20Dispatcher { contract_address: token };
             let ok = erc20.transfer(relayer, relayer_fee);
@@ -229,6 +260,14 @@ mod ShieldedPool {
     fn is_zero_address(addr: ContractAddress) -> bool {
         let felt: felt252 = addr.into();
         felt == 0
+    }
+
+    fn zero_address() -> ContractAddress {
+        0.try_into().unwrap()
+    }
+
+    fn is_zero_u256(value: u256) -> bool {
+        value.low == 0 && value.high == 0
     }
 
     fn deployer_address() -> ContractAddress {

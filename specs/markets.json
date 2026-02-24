@@ -21,6 +21,7 @@
       },
       "name": "Is BTC TVL above $100B on March 1st?",
       "description": "Checks if Bitcoin's total value locked on Growthepie exceeds $100 billion at the end of March 1st, 2026 UTC",
+      "market_address": "0x0123",
       "metadata": {
         "category": "defi",
         "asset": "bitcoin",
@@ -46,6 +47,7 @@
       "value_field": "total_active_users",
       "name": "Which L2 has highest TVL on March 1st?",
       "description": "Predicts which Layer 2 blockchain will have the highest total value locked on March 1st, 2026 UTC",
+      "market_address": "0x0456",
       "metadata": {
         "category": "l2",
         "metric": "tvl",
@@ -67,6 +69,7 @@
       "dispute_window_seconds": 300,
       "name": "Starknet DAA >= 100k on Feb 22?",
       "description": "Checks if Starknet's daily active addresses reaches or exceeds 100,000 on Feb 22, 2026",
+      "market_address": "0x0789",
       "metadata": {
         "category": "users",
         "metric": "daa"
@@ -87,6 +90,7 @@
       "dispute_window_seconds": 300,
       "name": "Starknet txcount >= 500k on Feb 22?",
       "description": "Checks if Starknet's daily transaction count reaches or exceeds 500,000 on Feb 22, 2026",
+      "market_address": "0x0abc",
       "metadata": {
         "category": "activity",
         "metric": "txcount"

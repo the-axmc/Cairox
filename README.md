@@ -82,7 +82,7 @@ Markets are resolved using objective ecosystem data from Growthepie, eliminating
 
 ## Smart Contracts
 
-The Cairox protocol consists of 12 core contracts:
+The Cairox protocol consists of the following core contracts:
 
 | Contract | Purpose |
 |----------|---------|
@@ -90,11 +90,13 @@ The Cairox protocol consists of 12 core contracts:
 | `Market` | Core market logic (minting, redemption, resolution) |
 | `CollateralVault` | Holds collateral deposits |
 | `OutcomeToken` | ERC-1155 tokens representing market outcomes |
-| `Oracle` | Stores data commitments from oracle agent |
+| `Oracle` | Stores ecosystem metrics from authorized updaters |
+| `DataCommitment` | Stores signed market state/data commitments |
 | `OptimisticOracle` | Challenge/response oracle workflow |
 | `ResolutionVerifier` | Verifies multi-user resolution claims |
 | `LMSRMarketMaker` | Automated market maker using LMSR pricing |
 | `LMSRMulti` | Multi-outcome LMSR implementation |
+| `ShieldedPool` | ZK-based privacy pool for trading |
 | `Arbitration` | Dispute resolution for contested outcomes |
 | `LaunchConfig` | Configuration for market creation parameters |
 | `PriceOracle` | Price feed adapter for collateral |
@@ -172,10 +174,12 @@ Cairox/
 │   │   ├── collateral_vault.cairo
 │   │   ├── outcome_token.cairo
 │   │   ├── oracle.cairo
+│   │   ├── data_commitment.cairo
 │   │   ├── optimistic_oracle.cairo
 │   │   ├── price_oracle.cairo
 │   │   ├── lmsr_market_maker.cairo
 │   │   ├── lmsr_multi.cairo
+│   │   ├── shielded_pool.cairo
 │   │   ├── arbitration.cairo
 │   │   ├── resolution_verifier.cairo
 │   │   ├── launch_config.cairo

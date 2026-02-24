@@ -30,7 +30,12 @@ pip install requests
 
 For Starknet integration:
 ```bash
-pip install starknet-py starkli
+pip install starknet-py
+```
+
+`starkli` is a CLI tool (not a pip package). Install separately:
+```bash
+curl https://get.starkli.sh | sh
 ```
 
 ## Configuration
@@ -47,6 +52,11 @@ export ORACLE_PROPOSER_BOND=100
 export ORACLE_REQUIRE_SIGNED=1
 export ORACLE_SIGNER_PUBLIC_KEY=0x...
 export ORACLE_SIGNER_PRIVATE_KEY=0x...
+export DATA_COMMITMENT_ADDRESS=0x...
+export ORACLE_COMMIT_MARKET_STATE=1
+export ORACLE_MARKET_ADDRESS=0x...
+export ORACLE_MARKET_ADDRESSES_JSON='{"market_id":"0x..."}'
+export ORACLE_MARKET_STATE_JSON='{"yes_supply":0,"no_supply":0,"b_param":0,"price_yes":0,"price_no":0,"timestamp":0}'
 export ZK_VERIFIER_ADDRESS=0x...
 export ORACLE_ZK_PROOF_PATH=
 export ORACLE_ZK_PROOF_DIR=
@@ -83,6 +93,17 @@ If your proof JSON does not include `public_inputs`, set:
 - `ORACLE_ZK_PUBLIC_INPUTS_PATH` to the `public.json` output from snarkjs (or an array of integers).
 
 The expected public input order is: `[market_id, outcome, data_hash]`.
+
+### Market State Commitments (cost-optimized proofs)
+
+If `ORACLE_COMMIT_MARKET_STATE=1`, the agent will sign and submit a market state hash
+to `DataCommitment` before proposing. It resolves the market address in this order:
+1. `market_address` field in the market spec
+2. `ORACLE_MARKET_ADDRESSES_JSON` mapping
+3. `ORACLE_MARKET_ADDRESS` fallback
+
+The market state hash is Poseidon(yes_supply, no_supply, b_param, price_yes, price_no, timestamp).
+The signature uses `pedersen(pedersen(market_id, hash), 'MSTATE')`.
 
 ## Market Specifications
 
@@ -130,6 +151,8 @@ Options:
 - `--finalize`: Finalize the market
 - `--network <goerli|mainnet|sepolia|localhost>`: Starknet network
 - `--spec-file <path>`: Custom specifications file
+- `--market-address <0x...>`: Override market address for state commitments
+- `--market-addresses-json <json>`: JSON mapping of market_id to address
 
 ### Run All Markets
 

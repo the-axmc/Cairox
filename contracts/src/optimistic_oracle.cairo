@@ -143,6 +143,16 @@ mod OptimisticOracle {
     }
 
     #[external(v0)]
+    fn get_verifier(self: @ContractState) -> ContractAddress {
+        self.verifier.read()
+    }
+
+    #[external(v0)]
+    fn get_data_commitment(self: @ContractState) -> ContractAddress {
+        self.data_commitment.read()
+    }
+
+    #[external(v0)]
     fn register_market(ref self: ContractState, market_id: felt252) {
         let caller = starknet::get_caller_address();
         let owner = self.owner.read();

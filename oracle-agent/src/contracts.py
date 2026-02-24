@@ -56,6 +56,7 @@ class StarknetInterface:
         self.oracle_address = self._normalize_address(os.getenv("ORACLE_CONTRACT_ADDRESS"))
         self.calculator_address = self._normalize_address(os.getenv("CALCULATOR_CONTRACT_ADDRESS"))
         self.verifier_address = self._normalize_address(os.getenv("RESOLUTION_VERIFIER_ADDRESS"))
+        self.data_commitment_address = self._normalize_address(os.getenv("DATA_COMMITMENT_ADDRESS"))
         
         # Initialize starknet.py client if available
         self.client = None
@@ -170,6 +171,99 @@ class StarknetInterface:
             return int(value, 16)
         return int(value)
 
+    def _parse_starkli_u256(self, output: str) -> int:
+        """Parse a starkli u256 output into int (low, high)."""
+        try:
+            raw = json.loads(output)
+        except json.JSONDecodeError:
+            raw = output.strip()
+        if isinstance(raw, list) and len(raw) >= 2:
+            low = int(raw[0], 16) if isinstance(raw[0], str) else int(raw[0])
+            high = int(raw[1], 16) if isinstance(raw[1], str) else int(raw[1])
+            return low + (high << 128)
+        if isinstance(raw, list) and len(raw) == 1:
+            return int(raw[0], 16) if isinstance(raw[0], str) else int(raw[0])
+        if isinstance(raw, str) and raw.startswith("0x"):
+            return int(raw, 16)
+        return int(raw)
+
+    def _parse_starkli_felt(self, output: str) -> int:
+        """Parse a starkli felt output into int."""
+        try:
+            raw = json.loads(output)
+        except json.JSONDecodeError:
+            raw = output.strip()
+        if isinstance(raw, list) and len(raw) > 0:
+            val = raw[0]
+            return int(val, 16) if isinstance(val, str) else int(val)
+        if isinstance(raw, str) and raw.startswith("0x"):
+            return int(raw, 16)
+        return int(raw)
+
+    def get_market_state(self, market_address: Union[str, int]) -> Dict[str, Any]:
+        """
+        Fetch market state from on-chain Market contract.
+        Returns yes_supply, no_supply, b_param, price_yes, price_no.
+        """
+        addr = self._normalize_address(market_address)
+        if addr is None:
+            raise ValueError("Market address is required")
+        if self.client:
+            return self._get_market_state_starknet_py(addr)
+        return self._get_market_state_starkli(addr)
+
+    def _get_market_state_starknet_py(self, market_address: int) -> Dict[str, Any]:
+        try:
+            from starknet_py.contract import Contract
+            contract = Contract(
+                address=market_address,
+                abi=self._get_market_abi(),
+                client=self.client
+            )
+            yes_supply = asyncio.run(contract.functions["get_yes_supply"].call())
+            no_supply = asyncio.run(contract.functions["get_no_supply"].call())
+            b_param = asyncio.run(contract.functions["get_b_param"].call())
+            price_yes = asyncio.run(contract.functions["get_yes_price"].call())
+            price_no = asyncio.run(contract.functions["get_no_price"].call())
+            return {
+                "success": True,
+                "yes_supply": int(yes_supply[0]) if isinstance(yes_supply, tuple) else int(yes_supply),
+                "no_supply": int(no_supply[0]) if isinstance(no_supply, tuple) else int(no_supply),
+                "b_param": int(b_param[0]) if isinstance(b_param, tuple) else int(b_param),
+                "price_yes": int(price_yes[0]) if isinstance(price_yes, tuple) else int(price_yes),
+                "price_no": int(price_no[0]) if isinstance(price_no, tuple) else int(price_no),
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def _get_market_state_starkli(self, market_address: int) -> Dict[str, Any]:
+        try:
+            yes_supply = self._call_starkli([
+                "call", self._addr_str(market_address), "get_yes_supply"
+            ])
+            no_supply = self._call_starkli([
+                "call", self._addr_str(market_address), "get_no_supply"
+            ])
+            b_param = self._call_starkli([
+                "call", self._addr_str(market_address), "get_b_param"
+            ])
+            price_yes = self._call_starkli([
+                "call", self._addr_str(market_address), "get_yes_price"
+            ])
+            price_no = self._call_starkli([
+                "call", self._addr_str(market_address), "get_no_price"
+            ])
+            return {
+                "success": True,
+                "yes_supply": self._parse_starkli_u256(yes_supply),
+                "no_supply": self._parse_starkli_u256(no_supply),
+                "b_param": self._parse_starkli_u256(b_param),
+                "price_yes": self._parse_starkli_u256(price_yes),
+                "price_no": self._parse_starkli_u256(price_no),
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
     def _market_id_to_felt(self, market_id: str) -> int:
         """Convert a market_id string into a felt252."""
         if isinstance(market_id, int):
@@ -274,6 +368,83 @@ class StarknetInterface:
         if self.account:
             return self._propose_starknet_py(market_id, outcome, data_hash, data_uri, bond)
         return self._propose_starkli(market_id, outcome, data_hash, data_uri, bond)
+
+    def set_commitment_signed(
+        self,
+        market_id: str,
+        state_hash: int,
+        sig_r: int,
+        sig_s: int,
+    ) -> Dict[str, Any]:
+        if not self.data_commitment_address:
+            raise ValueError("Data commitment contract address not set")
+        if self.account:
+            return self._set_commitment_signed_starknet_py(market_id, state_hash, sig_r, sig_s)
+        return self._set_commitment_signed_starkli(market_id, state_hash, sig_r, sig_s)
+
+    def _set_commitment_signed_starknet_py(
+        self,
+        market_id: str,
+        state_hash: int,
+        sig_r: int,
+        sig_s: int,
+    ) -> Dict[str, Any]:
+        market_id_felt = self._market_id_to_felt(market_id)
+        call = Call(
+            to_addr=self.data_commitment_address,
+            selector="set_commitment_signed",
+            calldata=[
+                market_id_felt,
+                int(state_hash),
+                int(sig_r),
+                int(sig_s),
+            ],
+        )
+        try:
+            tx = asyncio.run(self.account.execute_v1(calls=[call], max_fee=int(1e16)))
+            return {
+                "success": True,
+                "transaction_hash": hex(tx.transaction_hash),
+                "status": "pending",
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+            }
+
+    def _set_commitment_signed_starkli(
+        self,
+        market_id: str,
+        state_hash: int,
+        sig_r: int,
+        sig_s: int,
+    ) -> Dict[str, Any]:
+        cmd = [
+            "invoke",
+            self._addr_str(self.data_commitment_address),
+            "set_commitment_signed",
+            str(self._market_id_to_felt(market_id)),
+            str(int(state_hash)),
+            str(int(sig_r)),
+            str(int(sig_s)),
+        ]
+        if self.account_address:
+            cmd.extend(["--account", self.account_address])
+        try:
+            output = self._call_starkli(cmd)
+            tx_hash = output.split("Transaction hash: ")[-1].strip() if "Transaction hash:" in output else output
+            return {
+                "success": True,
+                "transaction_hash": tx_hash,
+                "status": "pending",
+                "raw_output": output,
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+            }
     
     def _propose_starknet_py(
         self,
@@ -666,6 +837,41 @@ class StarknetInterface:
                 "outputs": [
                     {"name": "outcome", "type": "felt"},
                 ],
+            },
+        ]
+
+    def _get_market_abi(self) -> list:
+        """Get Market ABI (simplified)."""
+        return [
+            {
+                "name": "get_yes_supply",
+                "type": "function",
+                "inputs": [],
+                "outputs": [{"name": "value", "type": "u256"}],
+            },
+            {
+                "name": "get_no_supply",
+                "type": "function",
+                "inputs": [],
+                "outputs": [{"name": "value", "type": "u256"}],
+            },
+            {
+                "name": "get_b_param",
+                "type": "function",
+                "inputs": [],
+                "outputs": [{"name": "value", "type": "u256"}],
+            },
+            {
+                "name": "get_yes_price",
+                "type": "function",
+                "inputs": [],
+                "outputs": [{"name": "value", "type": "u256"}],
+            },
+            {
+                "name": "get_no_price",
+                "type": "function",
+                "inputs": [],
+                "outputs": [{"name": "value", "type": "u256"}],
             },
         ]
 

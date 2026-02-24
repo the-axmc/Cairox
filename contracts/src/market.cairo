@@ -16,9 +16,9 @@ trait IERC20<TContractState> {
 
 #[starknet::interface]
 trait IOutcomeToken<TContractState> {
-    fn mint(ref self: TContractState, to: felt252, amount: u256);
-    fn burn(ref self: TContractState, from: felt252, amount: u256);
-    fn balance_of(self: @TContractState, account: felt252) -> u256;
+    fn mint(ref self: TContractState, to: ContractAddress, amount: u256);
+    fn burn(ref self: TContractState, from: ContractAddress, amount: u256);
+    fn balance_of(self: @TContractState, account: ContractAddress) -> u256;
 }
 
 #[starknet::interface]
@@ -262,12 +262,12 @@ mod Market {
             let supply = self.yes_supply.read();
             self.yes_supply.write(supply + tokens_out);
             let token = IOutcomeTokenDispatcher { contract_address: self.yes_token.read() };
-            token.mint(buyer.into(), tokens_out);
+            token.mint(buyer, tokens_out);
         } else {
             let supply = self.no_supply.read();
             self.no_supply.write(supply + tokens_out);
             let token = IOutcomeTokenDispatcher { contract_address: self.no_token.read() };
-            token.mint(buyer.into(), tokens_out);
+            token.mint(buyer, tokens_out);
         };
 
         // Transfer collateral into the market
@@ -314,13 +314,13 @@ mod Market {
             assert(supply >= token_amount, 'Insufficient supply');
             self.yes_supply.write(supply - token_amount);
             let token = IOutcomeTokenDispatcher { contract_address: self.yes_token.read() };
-            token.burn(seller.into(), token_amount);
+            token.burn(seller, token_amount);
         } else {
             let supply = self.no_supply.read();
             assert(supply >= token_amount, 'Insufficient supply');
             self.no_supply.write(supply - token_amount);
             let token = IOutcomeTokenDispatcher { contract_address: self.no_token.read() };
-            token.burn(seller.into(), token_amount);
+            token.burn(seller, token_amount);
         };
 
         let total = self.total_collateral.read();
@@ -422,7 +422,7 @@ mod Market {
             (IOutcomeTokenDispatcher { contract_address: self.no_token.read() }, self.no_supply.read())
         };
 
-        let winnings = token.balance_of(user.into());
+        let winnings = token.balance_of(user);
         assert(winnings > u256 { low: 0, high: 0 }, 'No winnings');
         assert(supply >= winnings, 'Insufficient supply');
 
@@ -493,6 +493,21 @@ mod Market {
     #[external(v0)]
     fn get_status(self: @ContractState) -> felt252 {
         self.status.read()
+    }
+
+    #[external(v0)]
+    fn get_yes_supply(self: @ContractState) -> u256 {
+        self.yes_supply.read()
+    }
+
+    #[external(v0)]
+    fn get_no_supply(self: @ContractState) -> u256 {
+        self.no_supply.read()
+    }
+
+    #[external(v0)]
+    fn get_b_param(self: @ContractState) -> u256 {
+        self.b_param.read()
     }
 
     #[external(v0)]

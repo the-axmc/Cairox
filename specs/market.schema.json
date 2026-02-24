@@ -112,6 +112,11 @@
     "metadata": {
       "description": "Additional metadata for the market",
       "type": "object"
+    },
+    "market_address": {
+      "description": "On-chain Market contract address (hex string)",
+      "type": "string",
+      "pattern": "^0x[0-9a-fA-F]{1,64}$"
     }
   },
   "additionalProperties": false

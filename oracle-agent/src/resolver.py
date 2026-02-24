@@ -23,6 +23,14 @@ except Exception:
         pedersen_hash = None
 
 try:
+    from poseidon_py.poseidon_hash import poseidon_hash as poseidon_hash_many
+except Exception:
+    try:
+        from poseidon_py import poseidon_hash as poseidon_hash_many
+    except Exception:
+        poseidon_hash_many = None
+
+try:
     from starknet_py.utils.crypto.signature import sign as starknet_sign
 except Exception:
     try:
@@ -243,6 +251,48 @@ class MarketResolver:
         if isinstance(market_id, str) and market_id.isdigit():
             return int(market_id)
         return int.from_bytes(str(market_id).encode()[:31], "big")
+
+    def _state_domain(self) -> int:
+        return int.from_bytes("MSTATE".encode(), "big")
+
+    def compute_market_state_hash(
+        self,
+        yes_supply: int,
+        no_supply: int,
+        b_param: int,
+        price_yes: int,
+        price_no: int,
+        timestamp: int,
+    ) -> int:
+        if poseidon_hash_many is None:
+            raise RuntimeError("poseidon hash not available. Install poseidon-py.")
+        values = [
+            int(yes_supply),
+            int(no_supply),
+            int(b_param),
+            int(price_yes),
+            int(price_no),
+            int(timestamp),
+        ]
+        return int(poseidon_hash_many(values)) % self.STARKNET_PRIME
+
+    def sign_market_state(
+        self,
+        market_id: str,
+        state_hash: int,
+        private_key: Optional[str] = None
+    ) -> tuple[int, int]:
+        if pedersen_hash is None or starknet_sign is None:
+            raise RuntimeError("Signing not available. Install starknet-py or starkware-crypto.")
+        priv = private_key or os.getenv("ORACLE_SIGNER_PRIVATE_KEY") or os.getenv("STARKNET_PRIVATE_KEY")
+        if not priv:
+            raise RuntimeError("Missing ORACLE_SIGNER_PRIVATE_KEY for signing market state")
+        priv_int = int(priv, 16) if str(priv).startswith("0x") else int(priv)
+        market_id_felt = self._market_id_to_felt(market_id)
+        acc = pedersen_hash(market_id_felt, int(state_hash))
+        msg_hash = pedersen_hash(acc, self._state_domain())
+        sig_r, sig_s = starknet_sign(msg_hash, priv_int)
+        return int(sig_r), int(sig_s)
 
     def _message_hash(self, market_id: str, outcome: str, data_hash: str) -> int:
         if pedersen_hash is None:
