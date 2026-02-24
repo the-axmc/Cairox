@@ -10,7 +10,7 @@ include "../node_modules/circomlib/circuits/poseidon.circom";
 template MarketThreshold() {
     signal input market_id;
     signal input outcome;
-    signal output data_hash;
+    signal input data_hash;
     signal input value;
     signal input threshold;
 

@@ -1,0 +1,64 @@
+# OS / Editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Env files
+.env
+.env.*
+*.env
+!.env.sample
+!**/.env.sample
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.python-version
+.venv/
+venv/
+env/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.tox/
+.coverage
+coverage.xml
+htmlcov/
+*.egg-info/
+dist/
+build/
+
+# Node / JS
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+.npm/
+
+# Cairo / Scarb / Starknet
+**/target/
+**/.snforge/
+**/.snfoundry_cache/
+**/.starknet/
+
+# ZK build artifacts
+zk/build/
+zk/**/*.ptau
+zk/**/*.zkey
+zk/**/*.r1cs
+zk/**/*.wasm
+zk/**/*.sym
+zk/**/*.wtns
+zk/**/*.calldata
+zk/cairox/*
+
+
+# Runtime caches / outputs
+oracle-agent/.cache/
+oracle-agent/cache/
+indexer/proofs/
+indexer/commitments/
