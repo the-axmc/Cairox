@@ -12,6 +12,8 @@ mod LMSRMarketMaker {
     const E_SCALED: u128 = 2718281828459045235_u128; // e * 1e18
     const MAX_EXP_INPUT: u128 = 10000000000000000000_u128; // 10 * 1e18
     const EXP_TERMS: u128 = 10_u128;
+    const MAX_U128: u128 = 340282366920938463463374607431768211455_u128;
+    const MAX_Q: u128 = MAX_U128 / SCALE;
 
     #[storage]
     struct Storage {
@@ -47,6 +49,9 @@ mod LMSRMarketMaker {
         let collateral_u = u256_to_u128(collateral);
 
         let (q_buy, q_other) = if outcome == 1 { (yes_u, no_u) } else { (no_u, yes_u) };
+        assert(q_buy <= MAX_Q, 'supply too large');
+        assert(q_other <= MAX_Q, 'supply too large');
+        assert(collateral_u <= MAX_Q, 'collateral too large');
 
         let exp_buy = exp_ratio(q_buy, b_u);
         let exp_other = exp_ratio(q_other, b_u);
@@ -84,6 +89,9 @@ mod LMSRMarketMaker {
         let tokens_u = u256_to_u128(tokens);
 
         let (q_sell, q_other) = if outcome == 1 { (yes_u, no_u) } else { (no_u, yes_u) };
+        assert(q_sell <= MAX_Q, 'supply too large');
+        assert(q_other <= MAX_Q, 'supply too large');
+        assert(tokens_u <= MAX_Q, 'tokens too large');
         assert(q_sell >= tokens_u, 'Insufficient supply');
 
         let cost_before = cost(b_u, q_sell, q_other);
@@ -108,6 +116,8 @@ mod LMSRMarketMaker {
         let yes_u = u256_to_u128(yes_supply);
         let no_u = u256_to_u128(no_supply);
 
+        assert(yes_u <= MAX_Q, 'supply too large');
+        assert(no_u <= MAX_Q, 'supply too large');
         let exp_yes = exp_ratio(yes_u, b_u);
         let exp_no = exp_ratio(no_u, b_u);
         let sum = exp_yes + exp_no;
@@ -134,6 +144,10 @@ mod LMSRMarketMaker {
 
     fn mul_div(a: u128, b: u128, denom: u128) -> u128 {
         assert(denom != 0, 'div by zero');
+        if a == 0 || b == 0 {
+            return 0;
+        }
+        assert(a <= MAX_U128 / b, 'mul overflow');
         a * b / denom
     }
 
@@ -198,6 +212,8 @@ mod LMSRMarketMaker {
     }
 
     fn cost(b: u128, q_yes: u128, q_no: u128) -> u128 {
+        assert(q_yes <= MAX_Q, 'supply too large');
+        assert(q_no <= MAX_Q, 'supply too large');
         let exp_yes = exp_ratio(q_yes, b);
         let exp_no = exp_ratio(q_no, b);
         let sum = exp_yes + exp_no;

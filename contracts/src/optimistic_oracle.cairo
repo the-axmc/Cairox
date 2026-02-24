@@ -178,16 +178,14 @@ mod OptimisticOracle {
     ) {
         let proof_len = zk_proof.len();
         assert((proof_len > 0) && (proof_len <= 1000), 'Invalid ZK proof size');
-        internal_propose(ref self, market_id, outcome, data_hash, 0, bond, true);
-
         let verifier = self.verifier.read();
-        if !is_zero_address(verifier) {
-            let verifier_dispatcher = IResolutionVerifierDispatcher { contract_address: verifier };
-            let requires = verifier_dispatcher.requires_proof(market_id);
-            assert(requires, 'Proof not required');
-            let verified = verifier_dispatcher.verify_resolution_proof(market_id, outcome, zk_proof);
-            assert(verified, 'Invalid ZK proof');
-        }
+        assert(!is_zero_address(verifier), 'Verifier not set');
+        let verifier_dispatcher = IResolutionVerifierDispatcher { contract_address: verifier };
+        let requires = verifier_dispatcher.requires_proof(market_id);
+        assert(requires, 'Proof not required');
+        internal_propose(ref self, market_id, outcome, data_hash, 0, bond, true);
+        let verified = verifier_dispatcher.verify_resolution_proof(market_id, outcome, zk_proof);
+        assert(verified, 'Invalid ZK proof');
         self.fast_path.write(market_id, 1);
     }
 
@@ -219,6 +217,8 @@ mod OptimisticOracle {
             let requires = verifier_dispatcher.requires_proof(market_id);
             if requires {
                 assert(fast_path == 1, 'Proof required');
+                let verified = verifier_dispatcher.is_fast_path(market_id);
+                assert(verified, 'Proof not verified');
             }
         }
         if fast_path == 0 {

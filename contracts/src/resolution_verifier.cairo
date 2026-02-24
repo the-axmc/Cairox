@@ -25,6 +25,8 @@ mod ResolutionVerifier {
     use core::array::Span;
     use core::array::SpanTrait;
     use core::box::BoxTrait;
+    use core::ecdsa::check_ecdsa_signature;
+    use core::ec::stark_curve;
     use core::traits::TryInto;
     use core::option::OptionTrait;
     use starknet::ContractAddress;
@@ -134,9 +136,14 @@ mod ResolutionVerifier {
             assert(*proof_inputs.at(1) == expected_outcome, 'Outcome mismatch');
             assert(*proof_inputs.at(2) == expected_data, 'Data hash mismatch');
         } else {
-            assert(proof.len() >= 1, 'Invalid proof');
+            let signer_pubkey = self.signer_pubkey.read();
+            assert(signer_pubkey != 0, 'Signer not set');
+            assert(proof.len() >= 3, 'Invalid proof');
             let provided_hash = *proof.at(0);
             assert(provided_hash == expected_hash, 'Data hash mismatch');
+            let sig_r = *proof.at(1);
+            let sig_s = *proof.at(2);
+            assert(is_valid_signature(market_id, outcome, provided_hash, signer_pubkey, sig_r, sig_s), 'Invalid signature');
         }
 
         let hash = hash_proof(market_id, outcome, proof);
@@ -179,6 +186,31 @@ mod ResolutionVerifier {
             i += 1;
         };
         acc
+    }
+
+    fn is_valid_signature(
+        market_id: felt252,
+        outcome: felt252,
+        data_hash: felt252,
+        pubkey: felt252,
+        sig_r: felt252,
+        sig_s: felt252
+    ) -> bool {
+        let msg_hash = message_hash(market_id, outcome, data_hash);
+        let ord = stark_curve::ORDER;
+        if sig_r >= ord || sig_s >= ord {
+            return false;
+        }
+        // Prevent malleability by enforcing low-s
+        if sig_s > (ord / 2) {
+            return false;
+        }
+        check_ecdsa_signature(msg_hash, pubkey, sig_r, sig_s)
+    }
+
+    fn message_hash(market_id: felt252, outcome: felt252, data_hash: felt252) -> felt252 {
+        let acc = pedersen(market_id, outcome);
+        pedersen(acc, data_hash)
     }
 
     fn is_zero_address(addr: ContractAddress) -> bool {
