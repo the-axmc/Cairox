@@ -18,8 +18,8 @@ mod LaunchConfig {
         max_total_volume: u256,
         b_parameter: u256,
         allowlist_enabled: bool,
-        allowed_traders: Map<felt252, bool>,
-        allowed_lps: Map<felt252, bool>,
+        allowed_traders: Map<felt252, u8>,
+        allowed_lps: Map<felt252, u8>,
         max_markets: u256,
         active_market_count: u256,
         permissionless_reporting: bool,
@@ -91,7 +91,7 @@ mod LaunchConfig {
         let current = self.owner.read();
         let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
-        self.allowed_lps.write(lp, true);
+        self.allowed_lps.write(lp, 1);
     }
 
     #[external(v0)]
@@ -99,7 +99,7 @@ mod LaunchConfig {
         let current = self.owner.read();
         let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
-        self.allowed_lps.write(lp, false);
+        self.allowed_lps.write(lp, 0);
     }
 
     #[external(v0)]
@@ -107,7 +107,7 @@ mod LaunchConfig {
         let current = self.owner.read();
         let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
-        self.allowed_traders.write(trader, true);
+        self.allowed_traders.write(trader, 1);
         let count = self.total_traders.read();
         self.total_traders.write(count + u256 { low: 1, high: 0 });
     }
@@ -117,7 +117,7 @@ mod LaunchConfig {
         let current = self.owner.read();
         let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
-        self.allowed_traders.write(trader, false);
+        self.allowed_traders.write(trader, 0);
     }
 
     #[external(v0)]
@@ -149,14 +149,14 @@ mod LaunchConfig {
         let phase = self.current_phase.read();
         
         if phase == PHASE_SEED {
-            return self.allowed_lps.read(trader);
+            return self.allowed_lps.read(trader) == 1;
         }
         
         if phase == PHASE_CONTROLLED {
             if self.allowlist_enabled.read() {
                 let is_allowed = self.allowed_traders.read(trader);
                 let is_lp = self.allowed_lps.read(trader);
-                return is_allowed | is_lp;
+                return (is_allowed == 1) || (is_lp == 1);
             }
             return true;
         }
@@ -186,7 +186,7 @@ mod LaunchConfig {
 
     #[external(v0)]
     fn is_allowed_lp(self: @ContractState, lp: felt252) -> bool {
-        self.allowed_lps.read(lp)
+        self.allowed_lps.read(lp) == 1
     }
 
     #[external(v0)]

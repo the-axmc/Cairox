@@ -25,7 +25,7 @@ Cairox enables permissionless prediction markets for Starknet ecosystem metrics:
 - **Categorical Markets** - Multiple outcomes (e.g., "Which L2 will have highest TVL?")
 - **Comparative Markets** - Ranked outcomes
 
-Markets are resolved using客观 ecosystem data from Growthepie, eliminating oracle manipulation risks.
+Markets are resolved using objective ecosystem data from Growthepie, eliminating oracle manipulation risks.
 
 ## Tech Stack
 
@@ -82,7 +82,7 @@ Markets are resolved using客观 ecosystem data from Growthepie, eliminating ora
 
 ## Smart Contracts
 
-The Cairox protocol consists of 10 core contracts:
+The Cairox protocol consists of 12 core contracts:
 
 | Contract | Purpose |
 |----------|---------|
@@ -91,11 +91,14 @@ The Cairox protocol consists of 10 core contracts:
 | `CollateralVault` | Holds collateral deposits |
 | `OutcomeToken` | ERC-1155 tokens representing market outcomes |
 | `Oracle` | Stores data commitments from oracle agent |
+| `OptimisticOracle` | Challenge/response oracle workflow |
 | `ResolutionVerifier` | Verifies multi-user resolution claims |
 | `LMSRMarketMaker` | Automated market maker using LMSR pricing |
 | `LMSRMulti` | Multi-outcome LMSR implementation |
 | `Arbitration` | Dispute resolution for contested outcomes |
 | `LaunchConfig` | Configuration for market creation parameters |
+| `PriceOracle` | Price feed adapter for collateral |
+| `Stablecoin` | Protocol stablecoin for collateral and bonds |
 
 ### Key Features
 
@@ -147,7 +150,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 
 # Configure environment
-cp ../env.sample .env
+cp ../.env.sample .env
 # Edit .env with your values
 
 # Run oracle agent
@@ -158,30 +161,42 @@ python src/agent.py
 
 ```
 Cairox/
-├── contracts/              # Cairo smart contracts (Scarb workspace)
-│   ├── Scarb.toml         # Workspace manifest
+├── contracts/              # Cairo smart contracts (Scarb package)
+│   ├── Scarb.toml         # Package manifest
+│   ├── config.json        # Deployment/config inputs
+│   ├── scripts/           # Deployment/helpers
 │   ├── src/               # Contract source code
-│   │   ├── lib.cairo     # Module declarations
+│   │   ├── lib.cairo      # Module declarations
 │   │   ├── market.cairo
 │   │   ├── market_factory.cairo
 │   │   ├── collateral_vault.cairo
 │   │   ├── outcome_token.cairo
 │   │   ├── oracle.cairo
+│   │   ├── optimistic_oracle.cairo
+│   │   ├── price_oracle.cairo
 │   │   ├── lmsr_market_maker.cairo
 │   │   ├── lmsr_multi.cairo
 │   │   ├── arbitration.cairo
 │   │   ├── resolution_verifier.cairo
-│   │   └── launch_config.cairo
+│   │   ├── launch_config.cairo
+│   │   ├── stablecoin.cairo
+│   │   ├── dummy_market.cairo
+│   │   └── dummy_oracle.cairo
 │   └── tests/             # Integration tests
-│       └── contracts/
+│       ├── contracts/
+│       └── test_cairox.cairo
 ├── oracle-agent/          # Python oracle for market resolution
 │   ├── src/
 │   │   ├── agent.py       # Main agent logic
-│   │   ├── growthepie.py # Growthepie API client
-│   │   └── resolver.py   # Resolution logic
+│   │   ├── growthepie.py  # Growthepie API client
+│   │   ├── resolver.py    # Resolution logic
+│   │   └── contracts.py   # Starknet bindings
+│   ├── scripts/
+│   ├── specs/
 │   └── requirements.txt
 ├── indexer/               # Off-chain event indexer
 │   ├── src/
+│   ├── scripts/
 │   ├── tests/
 │   └── requirements.txt
 ├── bot/                   # Oracle feeder bot
@@ -195,6 +210,7 @@ Cairox/
 │   ├── MARKET_SPEC.md
 │   ├── INVARIANTS.md
 │   └── THREAT_MODEL.md
+├── zk/                    # ZK tooling and circuits
 ├── .github/workflows/     # CI/CD
 │   └── ci.yml
 ├── Makefile

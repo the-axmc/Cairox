@@ -4,21 +4,27 @@ use snforge::test;
 use starknet::ContractAddress;
 use openzeppelin::math::u256 as u256_lib;
 use cairox_contracts::Stablecoin;
+use core::option::OptionTrait;
+use core::traits::TryInto;
 
 fn owner_address() -> ContractAddress {
-    ContractAddress::from(0x111111111111111111111111111111111111111111111111111111111111111_u128)
+    addr(0x111111111111111111111111111111111111111111111111111111111111111_u128)
 }
 
 fn user_address() -> ContractAddress {
-    ContractAddress::from(0x222222222222222222222222222222222222222222222222222222222222222_u128)
+    addr(0x222222222222222222222222222222222222222222222222222222222222222_u128)
 }
 
 fn other_address() -> ContractAddress {
-    ContractAddress::from(0x333333333333333333333333333333333333333333333333333333333333333_u128)
+    addr(0x333333333333333333333333333333333333333333333333333333333333333_u128)
 }
 
 fn zero_address() -> ContractAddress {
-    ContractAddress { value: 0 }
+    addr(0_u128)
+}
+
+fn addr(value: u128) -> ContractAddress {
+    value.try_into().unwrap()
 }
 
 fn price_feed_type_oracle() -> u8 {
@@ -34,8 +40,8 @@ fn test_constructor_and_metadata() {
     let owner = owner_address();
     let recipient = user_address();
     let token = Stablecoin::constructor(
-        name: s'cEUR',
-        symbol: s'cEUR',
+        name: 'cEUR',
+        symbol: 'cEUR',
         decimals: 6,
         owner: owner,
         initial_supply: u256_value(1_000_000),
@@ -44,8 +50,8 @@ fn test_constructor_and_metadata() {
         price_feed_type: price_feed_type_oracle()
     );
 
-    assert(token.name() == s'cEUR', 'Name should match');
-    assert(token.symbol() == s'cEUR', 'Symbol should match');
+    assert(token.name() == 'cEUR', 'Name should match');
+    assert(token.symbol() == 'cEUR', 'Symbol should match');
     assert(token.decimals() == 6, 'Decimals should match');
 
     let balance = token.balance_of(account: recipient);
@@ -57,8 +63,8 @@ fn test_owner_can_mint_and_burn() {
     let owner = owner_address();
     let recipient = user_address();
     let mut token = Stablecoin::constructor(
-        name: s'cEUR',
-        symbol: s'cEUR',
+        name: 'cEUR',
+        symbol: 'cEUR',
         decimals: 6,
         owner: owner,
         initial_supply: u256_value(0),
@@ -68,7 +74,7 @@ fn test_owner_can_mint_and_burn() {
     );
 
     // Mint as owner
-    starknet::set_caller_address(starknet::CallerAddress { value: owner.value });
+    starknet::set_caller_address(owner);
     token.mint(to: recipient, amount: u256_value(100));
     let balance = token.balance_of(account: recipient);
     assert(balance.low == 100, 'Mint should credit balance');
@@ -84,8 +90,8 @@ fn test_transfer_and_transfer_from() {
     let owner = owner_address();
     let recipient = user_address();
     let mut token = Stablecoin::constructor(
-        name: s'cEUR',
-        symbol: s'cEUR',
+        name: 'cEUR',
+        symbol: 'cEUR',
         decimals: 6,
         owner: owner,
         initial_supply: u256_value(100),
@@ -96,7 +102,7 @@ fn test_transfer_and_transfer_from() {
 
     // Transfer from recipient to other
     let user = user_address();
-    starknet::set_caller_address(starknet::CallerAddress { value: user.value });
+    starknet::set_caller_address(user);
     let ok = token.transfer(to: other_address(), amount: u256_value(30));
     assert(ok, 'Transfer should succeed');
 
@@ -108,7 +114,7 @@ fn test_transfer_and_transfer_from() {
     // Approve and transfer_from
     token.approve(spender: owner_address(), amount: u256_value(20));
     let owner = owner_address();
-    starknet::set_caller_address(starknet::CallerAddress { value: owner.value });
+    starknet::set_caller_address(owner);
     let ok_from = token.transfer_from(
         from: user_address(),
         to: other_address(),
@@ -128,8 +134,8 @@ fn test_price_feed_required() {
     let owner = owner_address();
     let recipient = user_address();
     let token = Stablecoin::constructor(
-        name: s'cEUR',
-        symbol: s'cEUR',
+        name: 'cEUR',
+        symbol: 'cEUR',
         decimals: 6,
         owner: owner,
         initial_supply: u256_value(0),

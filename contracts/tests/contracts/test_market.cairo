@@ -7,18 +7,24 @@ use starknet::cast::cast_felt;
 use openzeppelin::math::u256 as u256_lib;
 use cairox_contracts::Market;
 use cairox_contracts::OutcomeToken;
+use core::option::OptionTrait;
+use core::traits::TryInto;
 
 // Helper functions
 fn user_address() -> ContractAddress {
-    ContractAddress::from(0x123456789012345678901234567890123456789012345678901234567890123_u128)
+    addr(0x123456789012345678901234567890123456789012345678901234567890123_u128)
 }
 
 fn vault_address() -> ContractAddress {
-    ContractAddress::from(0x223456789012345678901234567890123456789012345678901234567890123_u128)
+    addr(0x223456789012345678901234567890123456789012345678901234567890123_u128)
 }
 
 fn factory_address() -> ContractAddress {
-    ContractAddress::from(0x323456789012345678901234567890123456789012345678901234567890123_u128)
+    addr(0x323456789012345678901234567890123456789012345678901234567890123_u128)
+}
+
+fn addr(value: u128) -> ContractAddress {
+    value.try_into().unwrap()
 }
 
 fn u256_value(amount: u128) -> u256_lib::U256 {
@@ -29,30 +35,30 @@ fn u256_value(amount: u128) -> u256_lib::U256 {
 }
 
 fn collateral_token_address() -> ContractAddress {
-    ContractAddress::from(0x423456789012345678901234567890123456789012345678901234567890123_u128)
+    addr(0x423456789012345678901234567890123456789012345678901234567890123_u128)
 }
 
 fn lmsr_address() -> ContractAddress {
-    ContractAddress::from(0x523456789012345678901234567890123456789012345678901234567890123_u128)
+    addr(0x523456789012345678901234567890123456789012345678901234567890123_u128)
 }
 
 fn yes_token_address() -> ContractAddress {
-    ContractAddress::from(0x623456789012345678901234567890123456789012345678901234567890123_u128)
+    addr(0x623456789012345678901234567890123456789012345678901234567890123_u128)
 }
 
 fn no_token_address() -> ContractAddress {
-    ContractAddress::from(0x723456789012345678901234567890123456789012345678901234567890123_u128)
+    addr(0x723456789012345678901234567890123456789012345678901234567890123_u128)
 }
 
 fn oracle_address() -> ContractAddress {
-    ContractAddress::from(0x823456789012345678901234567890123456789012345678901234567890123_u128)
+    addr(0x823456789012345678901234567890123456789012345678901234567890123_u128)
 }
 
 #[test]
 fn test_mint_complete_set() {
     // Setup: Initialize market
     let mut market = Market::constructor(
-        question: s'Q1',
+        question: 'Q1',
         collateral_token: collateral_token_address(),
         yes_token: yes_token_address(),
         no_token: no_token_address(),
@@ -95,7 +101,7 @@ fn test_mint_complete_set() {
 fn test_redeem_winning() {
     // Setup: Create market and mint complete set
     let mut market = Market::constructor(
-        question: s'Q2',
+        question: 'Q2',
         collateral_token: collateral_token_address(),
         yes_token: yes_token_address(),
         no_token: no_token_address(),
@@ -124,7 +130,7 @@ fn test_redeem_winning() {
 fn test_redeem_void() {
     // Setup: Create market and mint complete set
     let mut market = Market::constructor(
-        question: s'Q3',
+        question: 'Q3',
         collateral_token: collateral_token_address(),
         yes_token: yes_token_address(),
         no_token: no_token_address(),
@@ -152,7 +158,7 @@ fn test_insolvency_prevention() {
     
     // Setup
     let mut market = Market::constructor(
-        question: s'Q4',
+        question: 'Q4',
         collateral_token: collateral_token_address(),
         yes_token: yes_token_address(),
         no_token: no_token_address(),
@@ -184,7 +190,7 @@ fn test_multiple_users() {
     
     // Setup
     let mut market = Market::constructor(
-        question: s'Q5',
+        question: 'Q5',
         collateral_token: collateral_token_address(),
         yes_token: yes_token_address(),
         no_token: no_token_address(),
@@ -211,7 +217,7 @@ fn test_outcome_token_balance() {
     // Test that outcome tokens track balances correctly
     
     let mut market = Market::constructor(
-        question: s'Q6',
+        question: 'Q6',
         collateral_token: collateral_token_address(),
         yes_token: yes_token_address(),
         no_token: no_token_address(),
@@ -240,7 +246,7 @@ fn test_cannot_redeem_before_resolution() {
     // Test that users cannot redeem winning tokens before resolution
     
     let mut market = Market::constructor(
-        question: s'Q7',
+        question: 'Q7',
         collateral_token: collateral_token_address(),
         yes_token: yes_token_address(),
         no_token: no_token_address(),
@@ -264,7 +270,7 @@ fn test_cannot_redeem_before_void() {
     // Test that users cannot redeem void before market is voided
     
     let mut market = Market::constructor(
-        question: s'Q8',
+        question: 'Q8',
         collateral_token: collateral_token_address(),
         yes_token: yes_token_address(),
         no_token: no_token_address(),

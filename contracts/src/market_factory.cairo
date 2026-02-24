@@ -1,6 +1,7 @@
 // MarketFactory - Creates and manages markets
 
 use starknet::ContractAddress;
+use starknet::class_hash::ClassHash;
 
 #[starknet::interface]
 trait IOutcomeToken<TContractState> {
@@ -44,6 +45,7 @@ mod MarketFactory {
     use core::array::ArrayTrait;
     use core::array::SpanTrait;
     use starknet::ContractAddress;
+    use starknet::class_hash::ClassHash;
     use starknet::SyscallResultTrait;
     use starknet::storage::Map;
     use starknet::storage::StoragePointerReadAccess;
@@ -54,8 +56,8 @@ mod MarketFactory {
     struct Storage {
         owner: ContractAddress,
         collateral_token: ContractAddress,
-        market_class_hash: felt252,
-        outcome_token_class_hash: felt252,
+        market_class_hash: ClassHash,
+        outcome_token_class_hash: ClassHash,
         lmsr_market_maker: ContractAddress,
         b_param: u256,
         oracle: ContractAddress,
@@ -68,8 +70,8 @@ mod MarketFactory {
     fn constructor(
         ref self: ContractState,
         collateral_token: ContractAddress,
-        market_class_hash: felt252,
-        outcome_token_class_hash: felt252,
+        market_class_hash: ClassHash,
+        outcome_token_class_hash: ClassHash,
         lmsr_market_maker: ContractAddress,
         b_param: u256,
         oracle: ContractAddress
@@ -91,7 +93,7 @@ mod MarketFactory {
         self.market_count.write(id + u256 { low: 1, high: 0 });
 
         let lmsr_addr = self.lmsr_market_maker.read();
-        assert(lmsr_addr.value != 0, 'LMSR not set');
+        assert(!is_zero_address(lmsr_addr), 'LMSR not set');
         let b = self.b_param.read();
         let lmsr = ILMSRMarketMakerDispatcher { contract_address: lmsr_addr };
         let min_subsidy = lmsr.get_initial_cost(b);
@@ -101,9 +103,9 @@ mod MarketFactory {
         let token_class_hash = self.outcome_token_class_hash.read();
         let market_class_hash = self.market_class_hash.read();
 
-        let mut yes_calldata = Array::new();
+        let mut yes_calldata: Array<felt252> = ArrayTrait::new();
         yes_calldata.append(question);
-        yes_calldata.append(s'YES');
+        yes_calldata.append('YES');
         yes_calldata.append(factory_addr.into());
         let yes_salt: felt252 = id.low.into();
         let (yes_token, _) = deploy_syscall(
@@ -114,9 +116,9 @@ mod MarketFactory {
         )
         .unwrap_syscall();
 
-        let mut no_calldata = Array::new();
+        let mut no_calldata: Array<felt252> = ArrayTrait::new();
         no_calldata.append(question);
-        no_calldata.append(s'NO');
+        no_calldata.append('NO');
         no_calldata.append(factory_addr.into());
         let no_salt: felt252 = (id.low + 1_u128).into();
         let (no_token, _) = deploy_syscall(
@@ -127,7 +129,7 @@ mod MarketFactory {
         )
         .unwrap_syscall();
 
-        let mut market_calldata = Array::new();
+        let mut market_calldata: Array<felt252> = ArrayTrait::new();
         market_calldata.append(question);
         market_calldata.append(self.collateral_token.read().into());
         market_calldata.append(yes_token.into());
@@ -152,7 +154,8 @@ mod MarketFactory {
         let no_dispatcher = IOutcomeTokenDispatcher { contract_address: no_token };
         no_dispatcher.transfer_ownership(market_addr.into());
 
-        if initial_subsidy > u256 { low: 0, high: 0 } {
+        let zero = u256 { low: 0, high: 0 };
+        if initial_subsidy > zero {
             let caller = starknet::get_caller_address();
             let collateral = IERC20Dispatcher { contract_address: self.collateral_token.read() };
             let ok = collateral.transfer_from(caller, market_addr, initial_subsidy);
@@ -162,7 +165,7 @@ mod MarketFactory {
         }
 
         let oracle_addr = self.oracle.read();
-        if oracle_addr.value != 0 {
+        if !is_zero_address(oracle_addr) {
             let oracle = IOptimisticOracleDispatcher { contract_address: oracle_addr };
             oracle.register_market(id.low.into());
         }
@@ -180,5 +183,10 @@ mod MarketFactory {
     #[external(v0)]
     fn get_market(self: @ContractState, market_id: u256) -> felt252 {
         self.markets.read(market_id).into()
+    }
+
+    fn is_zero_address(addr: ContractAddress) -> bool {
+        let felt: felt252 = addr.into();
+        felt == 0
     }
 }

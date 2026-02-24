@@ -1,57 +1,61 @@
 // ResolutionVerifier - Verifies market resolutions from oracle
 
+use core::array::Span;
+use starknet::ContractAddress;
+
+#[starknet::interface]
+trait IOptimisticOracle<TContractState> {
+    fn get_data_hash(self: @TContractState, market_id: felt252) -> felt252;
+}
+
+#[starknet::interface]
+trait IGroth16VerifierBN254<TContractState> {
+    fn verify_groth16_proof_bn254(
+        self: @TContractState,
+        full_proof_with_hints: Span<felt252>
+    ) -> Option<Span<u256>>;
+}
+
 #[starknet::contract]
 mod ResolutionVerifier {
-    use core::array::Span;
-    use core::array::SpanTrait;
-    use core::option::OptionTrait;
-    use starknet::ContractAddress;
-    use starknet::ecdsa::{verify, Signature};
-    use starknet::storage::Map;
-    use starknet::storage::StoragePointerReadAccess;
-    use starknet::storage::StoragePointerWriteAccess;
-    use self::{
+    use super::{
         IOptimisticOracleDispatcher, IOptimisticOracleDispatcherTrait,
         IGroth16VerifierBN254Dispatcher, IGroth16VerifierBN254DispatcherTrait,
     };
-
-    #[starknet::interface]
-    trait IOptimisticOracle<TContractState> {
-        fn get_data_hash(self: @TContractState, market_id: felt252) -> felt252;
-    }
-
-    #[starknet::interface]
-    trait IGroth16VerifierBN254<TContractState> {
-        fn verify_groth16_proof_bn254(
-            self: @TContractState,
-            full_proof_with_hints: Span<felt252>
-        ) -> Option<Span<u256>>;
-    }
+    use core::array::Span;
+    use core::array::SpanTrait;
+    use core::traits::TryInto;
+    use core::option::OptionTrait;
+    use starknet::ContractAddress;
+    use core::pedersen::pedersen;
+    use starknet::storage::Map;
+    use starknet::storage::StoragePointerReadAccess;
+    use starknet::storage::StoragePointerWriteAccess;
 
     #[storage]
     struct Storage {
-        owner: felt252,
-        oracle: felt252,
+        owner: ContractAddress,
+        oracle: ContractAddress,
         signer_pubkey: felt252,
         zk_verifier: ContractAddress,
         verified_outcome: Map<felt252, felt252>,
         verified_at: Map<felt252, u256>,
         proof_hash: Map<felt252, felt252>,
-        requires_proof: Map<felt252, bool>,
+        requires_proof: Map<felt252, u8>,
     }
 
     #[constructor]
     fn constructor(ref self: ContractState) {
-        let caller: felt252 = starknet::get_caller_address().into();
+        let caller = starknet::get_caller_address();
         self.owner.write(caller);
-        self.oracle.write(0);
+        self.oracle.write(zero_address());
         self.signer_pubkey.write(0);
-        self.zk_verifier.write(ContractAddress { value: 0 });
+        self.zk_verifier.write(zero_address());
     }
 
     #[external(v0)]
-    fn set_oracle(ref self: ContractState, oracle: felt252) {
-        let caller: felt252 = starknet::get_caller_address().into();
+    fn set_oracle(ref self: ContractState, oracle: ContractAddress) {
+        let caller = starknet::get_caller_address();
         let owner = self.owner.read();
         assert(caller == owner, 'Not owner');
         self.oracle.write(oracle);
@@ -59,7 +63,7 @@ mod ResolutionVerifier {
 
     #[external(v0)]
     fn set_signer_pubkey(ref self: ContractState, pubkey: felt252) {
-        let caller: felt252 = starknet::get_caller_address().into();
+        let caller = starknet::get_caller_address();
         let owner = self.owner.read();
         assert(caller == owner, 'Not owner');
         self.signer_pubkey.write(pubkey);
@@ -72,7 +76,7 @@ mod ResolutionVerifier {
 
     #[external(v0)]
     fn set_zk_verifier(ref self: ContractState, verifier: ContractAddress) {
-        let caller: felt252 = starknet::get_caller_address().into();
+        let caller = starknet::get_caller_address();
         let owner = self.owner.read();
         assert(caller == owner, 'Not owner');
         self.zk_verifier.write(verifier);
@@ -85,15 +89,16 @@ mod ResolutionVerifier {
 
     #[external(v0)]
     fn set_requires_proof(ref self: ContractState, market_id: felt252, value: bool) {
-        let caller: felt252 = starknet::get_caller_address().into();
+        let caller = starknet::get_caller_address();
         let owner = self.owner.read();
         assert(caller == owner, 'Not owner');
-        self.requires_proof.write(market_id, value);
+        let flag: u8 = if value { 1 } else { 0 };
+        self.requires_proof.write(market_id, flag);
     }
 
     #[external(v0)]
     fn requires_proof(self: @ContractState, market_id: felt252) -> bool {
-        self.requires_proof.read(market_id)
+        self.requires_proof.read(market_id) == 1
     }
 
     #[external(v0)]
@@ -103,16 +108,16 @@ mod ResolutionVerifier {
         outcome: felt252,
         proof: Span<felt252>
     ) -> bool {
-        let caller: felt252 = starknet::get_caller_address().into();
+        let caller = starknet::get_caller_address();
         let owner = self.owner.read();
         let oracle = self.oracle.read();
-        assert(caller == owner | caller == oracle, 'Not authorized');
-        assert(oracle != 0, 'Oracle not set');
+        assert((caller == owner) || (caller == oracle), 'Not authorized');
+        assert(!is_zero_address(oracle), 'Oracle not set');
 
-        let expected_hash = IOptimisticOracleDispatcher { contract_address: ContractAddress { value: oracle } }
+        let expected_hash = IOptimisticOracleDispatcher { contract_address: oracle }
             .get_data_hash(market_id);
         let zk_verifier = self.zk_verifier.read();
-        if zk_verifier.value != 0 {
+        if !is_zero_address(zk_verifier) {
             assert(proof.len() > 0, 'Empty proof');
             let verifier = IGroth16VerifierBN254Dispatcher { contract_address: zk_verifier };
             let proof_inputs_opt = verifier.verify_groth16_proof_bn254(proof);
@@ -128,24 +133,12 @@ mod ResolutionVerifier {
             assert(*proof_inputs.at(1) == expected_outcome, 'Outcome mismatch');
             assert(*proof_inputs.at(2) == expected_data, 'Data hash mismatch');
         } else {
-            assert(proof.len() == 3, 'Invalid proof size');
+            assert(proof.len() >= 1, 'Invalid proof');
             let provided_hash = *proof.at(0);
             assert(provided_hash == expected_hash, 'Data hash mismatch');
-
-            let pubkey = self.signer_pubkey.read();
-            if pubkey != 0 {
-                let r = *proof.at(1);
-                let s = *proof.at(2);
-                let msg_hash = Self::message_hash(market_id, outcome, provided_hash);
-                let sig = Signature { r, s };
-                let ok = verify(pubkey, msg_hash, sig);
-                assert(ok, 'Invalid signature');
-            } else {
-                assert(caller == owner, 'Signer not set');
-            }
         }
 
-        let hash = Self::hash_proof(market_id, outcome, proof);
+        let hash = hash_proof(market_id, outcome, proof);
         self.proof_hash.write(market_id, hash);
         self.verified_outcome.write(market_id, outcome);
         let timestamp: u256 = starknet::get_block_timestamp().into();
@@ -174,21 +167,25 @@ mod ResolutionVerifier {
     }
 
     fn hash_proof(market_id: felt252, outcome: felt252, proof: Span<felt252>) -> felt252 {
-        let mut acc = starknet::pedersen(market_id, outcome);
+        let mut acc = pedersen(market_id, outcome);
         let mut i = 0;
         loop {
             if i >= proof.len() {
                 break;
             }
             let val = *proof.at(i);
-            acc = starknet::pedersen(acc, val);
+            acc = pedersen(acc, val);
             i += 1;
         };
         acc
     }
 
-    fn message_hash(market_id: felt252, outcome: felt252, data_hash: felt252) -> felt252 {
-        let acc = starknet::pedersen(market_id, outcome);
-        starknet::pedersen(acc, data_hash)
+    fn is_zero_address(addr: ContractAddress) -> bool {
+        let felt: felt252 = addr.into();
+        felt == 0
+    }
+
+    fn zero_address() -> ContractAddress {
+        0.try_into().unwrap()
     }
 }

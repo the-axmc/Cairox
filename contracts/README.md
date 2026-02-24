@@ -1,4 +1,4 @@
-# Cairox Contracts - Scarb Workspace
+# Cairox Contracts - Scarb Package
 
 This directory contains the Cairo smart contracts for the Cairox protocol.
 
@@ -6,11 +6,29 @@ This directory contains the Cairo smart contracts for the Cairox protocol.
 
 ```
 contracts/
-├── Scarb.toml       # Workspace manifest
+├── Scarb.toml       # Package manifest
+├── config.json      # Deployment/config inputs
+├── scripts/         # Deployment/helpers
 ├── src/
-│   └── lib.cairo    # Main contract entry point
+│   ├── lib.cairo                # Module declarations
+│   ├── market.cairo
+│   ├── market_factory.cairo
+│   ├── collateral_vault.cairo
+│   ├── outcome_token.cairo
+│   ├── oracle.cairo
+│   ├── optimistic_oracle.cairo
+│   ├── price_oracle.cairo
+│   ├── lmsr_market_maker.cairo
+│   ├── lmsr_multi.cairo
+│   ├── arbitration.cairo
+│   ├── resolution_verifier.cairo
+│   ├── launch_config.cairo
+│   ├── stablecoin.cairo
+│   ├── dummy_market.cairo
+│   └── dummy_oracle.cairo
 └── tests/
-    └── contracts/   # Test files
+    ├── contracts/               # Test helpers
+    └── test_cairox.cairo         # Main test entry
 ```
 
 ## Dependencies

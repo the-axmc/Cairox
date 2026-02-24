@@ -37,30 +37,30 @@ mod LMSRMarketMaker {
         outcome: felt252,
         collateral: u256
     ) -> u256 {
-        assert(outcome == 0 | outcome == 1, 'Invalid outcome');
-        let b_u = Self::u256_to_u128(b);
+        assert(outcome == 0 || outcome == 1, 'Invalid outcome');
+        let b_u = u256_to_u128(b);
         assert(b_u > 0, 'b=0');
-        let yes_u = Self::u256_to_u128(yes_supply);
-        let no_u = Self::u256_to_u128(no_supply);
-        let collateral_u = Self::u256_to_u128(collateral);
+        let yes_u = u256_to_u128(yes_supply);
+        let no_u = u256_to_u128(no_supply);
+        let collateral_u = u256_to_u128(collateral);
 
         let (q_buy, q_other) = if outcome == 1 { (yes_u, no_u) } else { (no_u, yes_u) };
 
-        let exp_buy = Self::exp_ratio(q_buy, b_u);
-        let exp_other = Self::exp_ratio(q_other, b_u);
+        let exp_buy = exp_ratio(q_buy, b_u);
+        let exp_other = exp_ratio(q_other, b_u);
         let sum = exp_buy + exp_other;
 
-        let cost_fp = Self::mul_div(collateral_u, SCALE, b_u);
+        let cost_fp = mul_div(collateral_u, SCALE, b_u);
         assert(cost_fp <= MAX_EXP_INPUT, 'exp overflow');
-        let exp_cost = Self::exp_fp(cost_fp);
+        let exp_cost = exp_fp(cost_fp);
 
         // exp(delta/b) = (exp(cost/b) * (exp(q_buy/b)+exp(q_other/b)) - exp(q_other/b)) / exp(q_buy/b)
-        let term = Self::mul_div(exp_cost, sum, SCALE);
+        let term = mul_div(exp_cost, sum, SCALE);
         assert(term > exp_other, 'Invalid collateral');
         let numerator = term - exp_other;
-        let ratio = Self::mul_div(numerator, SCALE, exp_buy);
-        let ln_ratio = Self::ln_fp(ratio);
-        let delta = Self::mul_div(b_u, ln_ratio, SCALE);
+        let ratio = mul_div(numerator, SCALE, exp_buy);
+        let ln_ratio = ln_fp(ratio);
+        let delta = mul_div(b_u, ln_ratio, SCALE);
 
         u256 { low: delta, high: 0 }
     }
@@ -74,18 +74,18 @@ mod LMSRMarketMaker {
         outcome: felt252,
         tokens: u256
     ) -> u256 {
-        assert(outcome == 0 | outcome == 1, 'Invalid outcome');
-        let b_u = Self::u256_to_u128(b);
+        assert(outcome == 0 || outcome == 1, 'Invalid outcome');
+        let b_u = u256_to_u128(b);
         assert(b_u > 0, 'b=0');
-        let yes_u = Self::u256_to_u128(yes_supply);
-        let no_u = Self::u256_to_u128(no_supply);
-        let tokens_u = Self::u256_to_u128(tokens);
+        let yes_u = u256_to_u128(yes_supply);
+        let no_u = u256_to_u128(no_supply);
+        let tokens_u = u256_to_u128(tokens);
 
         let (q_sell, q_other) = if outcome == 1 { (yes_u, no_u) } else { (no_u, yes_u) };
         assert(q_sell >= tokens_u, 'Insufficient supply');
 
-        let cost_before = Self::cost(b_u, q_sell, q_other);
-        let cost_after = Self::cost(b_u, q_sell - tokens_u, q_other);
+        let cost_before = cost(b_u, q_sell, q_other);
+        let cost_after = cost(b_u, q_sell - tokens_u, q_other);
         assert(cost_before >= cost_after, 'Invalid cost');
         let collateral_out = cost_before - cost_after;
 
@@ -100,28 +100,28 @@ mod LMSRMarketMaker {
         no_supply: u256,
         outcome: felt252
     ) -> u256 {
-        assert(outcome == 0 | outcome == 1, 'Invalid outcome');
-        let b_u = Self::u256_to_u128(b);
+        assert(outcome == 0 || outcome == 1, 'Invalid outcome');
+        let b_u = u256_to_u128(b);
         assert(b_u > 0, 'b=0');
-        let yes_u = Self::u256_to_u128(yes_supply);
-        let no_u = Self::u256_to_u128(no_supply);
+        let yes_u = u256_to_u128(yes_supply);
+        let no_u = u256_to_u128(no_supply);
 
-        let exp_yes = Self::exp_ratio(yes_u, b_u);
-        let exp_no = Self::exp_ratio(no_u, b_u);
+        let exp_yes = exp_ratio(yes_u, b_u);
+        let exp_no = exp_ratio(no_u, b_u);
         let sum = exp_yes + exp_no;
         let price = if outcome == 1 {
-            Self::mul_div(exp_yes, SCALE, sum)
+            mul_div(exp_yes, SCALE, sum)
         } else {
-            Self::mul_div(exp_no, SCALE, sum)
+            mul_div(exp_no, SCALE, sum)
         };
         u256 { low: price, high: 0 }
     }
 
     #[external(v0)]
     fn get_initial_cost(self: @ContractState, b: u256) -> u256 {
-        let b_u = Self::u256_to_u128(b);
+        let b_u = u256_to_u128(b);
         assert(b_u > 0, 'b=0');
-        let cost = Self::cost(b_u, 0_u128, 0_u128);
+        let cost = cost(b_u, 0_u128, 0_u128);
         u256 { low: cost, high: 0 }
     }
 
@@ -136,9 +136,9 @@ mod LMSRMarketMaker {
     }
 
     fn exp_ratio(q: u128, b: u128) -> u128 {
-        let x = Self::mul_div(q, SCALE, b);
+        let x = mul_div(q, SCALE, b);
         assert(x <= MAX_EXP_INPUT, 'exp overflow');
-        Self::exp_fp(x)
+        exp_fp(x)
     }
 
     fn exp_fp(x: u128) -> u128 {
@@ -146,13 +146,13 @@ mod LMSRMarketMaker {
         let k = x / SCALE;
         assert(k <= 10, 'exp overflow');
         let r = x - k * SCALE;
-        let mut result = Self::exp_series(r);
+        let mut result = exp_series(r);
         let mut i = 0_u128;
         loop {
             if i >= k {
                 break;
             }
-            result = Self::mul_div(result, E_SCALED, SCALE);
+            result = mul_div(result, E_SCALED, SCALE);
             i += 1;
         };
         result
@@ -166,7 +166,7 @@ mod LMSRMarketMaker {
             if i > EXP_TERMS {
                 break;
             }
-            term = Self::mul_div(term, r, SCALE);
+            term = mul_div(term, r, SCALE);
             term = term / i;
             sum = sum + term;
             i += 1;
@@ -184,7 +184,7 @@ mod LMSRMarketMaker {
                 break;
             }
             let mid = (low + high) / 2;
-            let exp_mid = Self::exp_fp(mid);
+            let exp_mid = exp_fp(mid);
             if exp_mid > y {
                 high = mid;
             } else {
@@ -196,10 +196,10 @@ mod LMSRMarketMaker {
     }
 
     fn cost(b: u128, q_yes: u128, q_no: u128) -> u128 {
-        let exp_yes = Self::exp_ratio(q_yes, b);
-        let exp_no = Self::exp_ratio(q_no, b);
+        let exp_yes = exp_ratio(q_yes, b);
+        let exp_no = exp_ratio(q_no, b);
         let sum = exp_yes + exp_no;
-        let ln_sum = Self::ln_fp(sum);
-        Self::mul_div(b, ln_sum, SCALE)
+        let ln_sum = ln_fp(sum);
+        mul_div(b, ln_sum, SCALE)
     }
 }

@@ -4,17 +4,23 @@ use snforge::test;
 use starknet::ContractAddress;
 use openzeppelin::math::u256 as u256_lib;
 use cairox_contracts::OutcomeToken;
+use core::option::OptionTrait;
+use core::traits::TryInto;
 
 fn owner_address() -> ContractAddress {
-    ContractAddress::from(0x111111111111111111111111111111111111111111111111111111111111111_u128)
+    addr(0x111111111111111111111111111111111111111111111111111111111111111_u128)
 }
 
 fn user_address() -> ContractAddress {
-    ContractAddress::from(0x222222222222222222222222222222222222222222222222222222222222222_u128)
+    addr(0x222222222222222222222222222222222222222222222222222222222222222_u128)
 }
 
 fn other_address() -> ContractAddress {
-    ContractAddress::from(0x333333333333333333333333333333333333333333333333333333333333333_u128)
+    addr(0x333333333333333333333333333333333333333333333333333333333333333_u128)
+}
+
+fn addr(value: u128) -> ContractAddress {
+    value.try_into().unwrap()
 }
 
 fn u256_value(amount: u128) -> u256_lib::U256 {
@@ -27,7 +33,7 @@ fn u256_value(amount: u128) -> u256_lib::U256 {
 #[test]
 fn test_constructor_and_owner() {
     let owner = owner_address();
-    let token = OutcomeToken::constructor(name: s'YES', symbol: s'YES', owner: owner.into());
+    let token = OutcomeToken::constructor(name: 'YES', symbol: 'YES', owner: owner.into());
     let stored_owner = token.get_owner();
     assert(stored_owner == owner.into(), 'Owner should match constructor');
 }
@@ -35,10 +41,10 @@ fn test_constructor_and_owner() {
 #[test]
 fn test_owner_can_mint_and_burn() {
     let owner = owner_address();
-    let mut token = OutcomeToken::constructor(name: s'YES', symbol: s'YES', owner: owner.into());
+    let mut token = OutcomeToken::constructor(name: 'YES', symbol: 'YES', owner: owner.into());
 
     // Mint as owner
-    starknet::set_caller_address(starknet::CallerAddress { value: owner.value });
+    starknet::set_caller_address(owner);
     token.mint(to: user_address().into(), amount: u256_value(100));
     let balance = token.balance_of(account: user_address().into());
     assert(balance.low == 100, 'Mint should credit balance');
@@ -53,11 +59,11 @@ fn test_owner_can_mint_and_burn() {
 #[should_revert]
 fn test_non_owner_cannot_mint() {
     let owner = owner_address();
-    let mut token = OutcomeToken::constructor(name: s'YES', symbol: s'YES', owner: owner.into());
+    let mut token = OutcomeToken::constructor(name: 'YES', symbol: 'YES', owner: owner.into());
 
     // Call from non-owner
     let non_owner = user_address();
-    starknet::set_caller_address(starknet::CallerAddress { value: non_owner.value });
+    starknet::set_caller_address(non_owner);
     token.mint(to: user_address().into(), amount: u256_value(10));
 }
 
@@ -65,30 +71,30 @@ fn test_non_owner_cannot_mint() {
 #[should_revert]
 fn test_non_owner_cannot_burn() {
     let owner = owner_address();
-    let mut token = OutcomeToken::constructor(name: s'YES', symbol: s'YES', owner: owner.into());
+    let mut token = OutcomeToken::constructor(name: 'YES', symbol: 'YES', owner: owner.into());
 
     // Mint as owner
-    starknet::set_caller_address(starknet::CallerAddress { value: owner.value });
+    starknet::set_caller_address(owner);
     token.mint(to: user_address().into(), amount: u256_value(10));
 
     // Burn as non-owner
     let non_owner = other_address();
-    starknet::set_caller_address(starknet::CallerAddress { value: non_owner.value });
+    starknet::set_caller_address(non_owner);
     token.burn(from: user_address().into(), amount: u256_value(5));
 }
 
 #[test]
 fn test_transfer_and_transfer_from() {
     let owner = owner_address();
-    let mut token = OutcomeToken::constructor(name: s'YES', symbol: s'YES', owner: owner.into());
+    let mut token = OutcomeToken::constructor(name: 'YES', symbol: 'YES', owner: owner.into());
 
     // Mint as owner
-    starknet::set_caller_address(starknet::CallerAddress { value: owner.value });
+    starknet::set_caller_address(owner);
     token.mint(to: user_address().into(), amount: u256_value(100));
 
     // Transfer from user to other
     let user = user_address();
-    starknet::set_caller_address(starknet::CallerAddress { value: user.value });
+    starknet::set_caller_address(user);
     token.transfer(to: other_address().into(), amount: u256_value(30));
     let user_balance = token.balance_of(account: user_address().into());
     let other_balance = token.balance_of(account: other_address().into());
@@ -98,7 +104,7 @@ fn test_transfer_and_transfer_from() {
     // Approve and transfer_from
     token.approve(spender: owner_address().into(), amount: u256_value(20));
     let owner = owner_address();
-    starknet::set_caller_address(starknet::CallerAddress { value: owner.value });
+    starknet::set_caller_address(owner);
     token.transfer_from(
         from: user_address().into(),
         to: other_address().into(),

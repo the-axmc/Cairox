@@ -7,23 +7,29 @@ use starknet::cast::cast_felt;
 use openzeppelin::math::u256 as u256_lib;
 use cairox_contracts::OptimisticOracle;
 use cairox_contracts::Arbitration;
+use core::option::OptionTrait;
+use core::traits::TryInto;
 
 // ==================== Helper Functions ====================
 
 fn arbiter_address() -> ContractAddress {
-    ContractAddress::from(0x123456789012345678901234567890123456789012345678901234567890123_u128)
+    addr(0x123456789012345678901234567890123456789012345678901234567890123_u128)
 }
 
 fn proposer_address() -> ContractAddress {
-    ContractAddress::from(0x223456789012345678901234567890123456789012345678901234567890123_u128)
+    addr(0x223456789012345678901234567890123456789012345678901234567890123_u128)
 }
 
 fn disputor_address() -> ContractAddress {
-    ContractAddress::from(0x323456789012345678901234567890123456789012345678901234567890123_u128)
+    addr(0x323456789012345678901234567890123456789012345678901234567890123_u128)
 }
 
 fn protocol_address() -> ContractAddress {
-    ContractAddress::from(0x999999999999999999999999999999999999999999999999999999999999999_u128)
+    addr(0x999999999999999999999999999999999999999999999999999999999999999_u128)
+}
+
+fn addr(value: u128) -> ContractAddress {
+    value.try_into().unwrap()
 }
 
 fn u256_value(amount: u128) -> u256_lib::U256 {
@@ -34,7 +40,7 @@ fn u256_value(amount: u128) -> u256_lib::U256 {
 }
 
 fn market_id_1() -> felt252 {
-    s'market_1'
+    'market_1'
 }
 
 // Minimum bond amounts (same as defaults in oracle.cairo)
@@ -52,12 +58,12 @@ fn min_dispute_bond() -> u256_lib::U256 {
 #[should_revert]
 func test_dispute_blocks_finalize() {
     // 1. Propose market with bond
-    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
+    let mut oracle = OptimisticOracle::constructor(bond_token: addr(0_u128));
     
     let market_id = market_id_1();
-    let outcome = s'YES';
-    let data_hash = s'0x1234';
-    let data_uri = s'metadata';
+    let outcome = 'YES';
+    let data_hash = 0x1234;
+    let data_uri = 'metadata';
     let proposer_bond = min_proposer_bond();
     
     // Propose from authorized reporter
@@ -91,13 +97,13 @@ func test_dispute_blocks_finalize() {
 #[test]
 func test_bond_transfer() {
     // Setup: Oracle and arbitration contracts
-    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
+    let mut oracle = OptimisticOracle::constructor(bond_token: addr(0_u128));
     let _arbitration = Arbitration::constructor();
     
     let market_id = market_id_1();
-    let outcome = s'YES';
-    let data_hash = s'0x1234';
-    let data_uri = s'metadata';
+    let outcome = 'YES';
+    let data_hash = 0x1234;
+    let data_uri = 'metadata';
     
     let proposer_bond = min_proposer_bond();
     let dispute_bond = min_dispute_bond();
@@ -123,7 +129,7 @@ func test_bond_transfer() {
     // Need to call from arbiter address
     oracle.set_arbiter(arbiter_address());
     let arbiter = arbiter_address();
-    starknet::set_caller_address(starknet::CallerAddress { value: arbiter.value });
+    starknet::set_caller_address(arbiter);
     
     oracle.resolve_arbitration(
         market_id: market_id,
@@ -147,12 +153,12 @@ func test_bond_transfer() {
 #[test]
 func test_arbitration_resolution() {
     // 1. Propose
-    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
+    let mut oracle = OptimisticOracle::constructor(bond_token: addr(0_u128));
     
     let market_id = market_id_1();
-    let outcome = s'YES';
-    let data_hash = s'0x1234';
-    let data_uri = s'metadata';
+    let outcome = 'YES';
+    let data_hash = 0x1234;
+    let data_uri = 'metadata';
     let proposer_bond = min_proposer_bond();
     
     oracle.register_market(market_id: market_id);
@@ -177,9 +183,9 @@ func test_arbitration_resolution() {
     // 3. Arbiter resolves with outcome
     oracle.set_arbiter(arbiter_address());
     let arbiter = arbiter_address();
-    starknet::set_caller_address(starknet::CallerAddress { value: arbiter.value });
+    starknet::set_caller_address(arbiter);
     
-    let resolved_outcome = s'NO';  // Different from proposed outcome
+    let resolved_outcome = 'NO';  // Different from proposed outcome
     oracle.resolve_arbitration(
         market_id: market_id,
         outcome: resolved_outcome
@@ -198,12 +204,12 @@ func test_arbitration_resolution() {
 #[test]
 func test_non_disputed_finalize() {
     // 1. Propose with bond
-    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
+    let mut oracle = OptimisticOracle::constructor(bond_token: addr(0_u128));
     
     let market_id = market_id_1();
-    let outcome = s'YES';
-    let data_hash = s'0x1234';
-    let data_uri = s'metadata';
+    let outcome = 'YES';
+    let data_hash = 0x1234;
+    let data_uri = 'metadata';
     let proposer_bond = min_proposer_bond();
     
     oracle.register_market(market_id: market_id);
@@ -247,12 +253,12 @@ func test_non_disputed_finalize() {
 func test_disputed_proposal_cannot_be_finalized() {
     // Test that a disputed proposal cannot be finalized without arbitration
     
-    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
+    let mut oracle = OptimisticOracle::constructor(bond_token: addr(0_u128));
     
     let market_id = market_id_1();
-    let outcome = s'YES';
-    let data_hash = s'0x1234';
-    let data_uri = s'metadata';
+    let outcome = 'YES';
+    let data_hash = 0x1234;
+    let data_uri = 'metadata';
     let proposer_bond = min_proposer_bond();
     
     // Propose
@@ -279,12 +285,12 @@ func test_disputed_proposal_cannot_be_finalized() {
 func test_non_disputed_finalizes_after_window() {
     // Test the full flow of a non-disputed proposal
     
-    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
+    let mut oracle = OptimisticOracle::constructor(bond_token: addr(0_u128));
     
     let market_id = market_id_1();
-    let outcome = s'YES';
-    let data_hash = s'0x1234';
-    let data_uri = s'metadata';
+    let outcome = 'YES';
+    let data_hash = 0x1234;
+    let data_uri = 'metadata';
     let proposer_bond = min_proposer_bond();
     
     // Propose
@@ -316,12 +322,12 @@ func test_non_disputed_finalizes_after_window() {
 func test_arbitration_only_by_arbiter() {
     // Test that only the arbiter can resolve disputes
     
-    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
+    let mut oracle = OptimisticOracle::constructor(bond_token: addr(0_u128));
     
     let market_id = market_id_1();
-    let outcome = s'YES';
-    let data_hash = s'0x1234';
-    let data_uri = s'metadata';
+    let outcome = 'YES';
+    let data_hash = 0x1234;
+    let data_uri = 'metadata';
     let proposer_bond = min_proposer_bond();
     
     // Propose
@@ -341,7 +347,7 @@ func test_arbitration_only_by_arbiter() {
     // Try to resolve from a non-arbiter address
     oracle.set_arbiter(arbiter_address());
     let random_user = proposer_address();
-    starknet::set_caller_address(starknet::CallerAddress { value: random_user.value });
+    starknet::set_caller_address(random_user);
     
     oracle.resolve_arbitration(
         market_id: market_id,
@@ -356,12 +362,12 @@ func test_arbitration_only_by_arbiter() {
 func test_cannot_dispute_already_disputed() {
     // Test that a market cannot be disputed multiple times
     
-    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
+    let mut oracle = OptimisticOracle::constructor(bond_token: addr(0_u128));
     
     let market_id = market_id_1();
-    let outcome = s'YES';
-    let data_hash = s'0x1234';
-    let data_uri = s'metadata';
+    let outcome = 'YES';
+    let data_hash = 0x1234;
+    let data_uri = 'metadata';
     let proposer_bond = min_proposer_bond();
     
     // Propose
@@ -389,12 +395,12 @@ func test_cannot_dispute_already_disputed() {
 func test_dispute_wrong_state() {
     // Test that dispute fails if market is not in Proposed state
     
-    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
+    let mut oracle = OptimisticOracle::constructor(bond_token: addr(0_u128));
     
     let market_id = market_id_1();
-    let outcome = s'YES';
-    let data_hash = s'0x1234';
-    let data_uri = s'metadata';
+    let outcome = 'YES';
+    let data_hash = 0x1234;
+    let data_uri = 'metadata';
     let proposer_bond = min_proposer_bond();
     
     // Propose
@@ -410,7 +416,7 @@ func test_dispute_wrong_state() {
     // Resolve manually (without dispute) to change state
     oracle.set_arbiter(arbiter_address());
     let arbiter = arbiter_address();
-    starknet::set_caller_address(starknet::CallerAddress { value: arbiter.value });
+    starknet::set_caller_address(arbiter);
     
     oracle.resolve_arbitration(
         market_id: market_id,
@@ -429,12 +435,12 @@ func test_dispute_wrong_state() {
 func test_propose_wrong_state() {
     // Test that proposing an already-proposed market fails
     
-    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
+    let mut oracle = OptimisticOracle::constructor(bond_token: addr(0_u128));
     
     let market_id = market_id_1();
-    let outcome = s'YES';
-    let data_hash = s'0x1234';
-    let data_uri = s'metadata';
+    let outcome = 'YES';
+    let data_hash = 0x1234;
+    let data_uri = 'metadata';
     let proposer_bond = min_proposer_bond();
     
     // First propose
@@ -465,9 +471,9 @@ func test_propose_wrong_state() {
 func test_finalize_wrong_state() {
     // Test that finalize fails for non-existent market
     
-    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
+    let mut oracle = OptimisticOracle::constructor(bond_token: addr(0_u128));
     
-    let market_id = s'nonexistent';
+    let market_id = 'nonexistent';
     
     // Try to finalize non-existent market
     oracle.finalize(market_id: market_id);
@@ -480,12 +486,12 @@ func test_finalize_wrong_state() {
 func test_propose_bond_too_low() {
     // Test that propose fails if bond is below minimum
     
-    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
+    let mut oracle = OptimisticOracle::constructor(bond_token: addr(0_u128));
     
     let market_id = market_id_1();
-    let outcome = s'YES';
-    let data_hash = s'0x1234';
-    let data_uri = s'metadata';
+    let outcome = 'YES';
+    let data_hash = 0x1234;
+    let data_uri = 'metadata';
     let low_bond = u256_value(50);  // Below minimum of 100
     
     // Propose with insufficient bond
@@ -504,12 +510,12 @@ func test_propose_bond_too_low() {
 func test_dispute_bond_too_low() {
     // Test that dispute fails if bond is below minimum
     
-    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
+    let mut oracle = OptimisticOracle::constructor(bond_token: addr(0_u128));
     
     let market_id = market_id_1();
-    let outcome = s'YES';
-    let data_hash = s'0x1234';
-    let data_uri = s'metadata';
+    let outcome = 'YES';
+    let data_hash = 0x1234;
+    let data_uri = 'metadata';
     let proposer_bond = min_proposer_bond();
     
     // Propose first
@@ -533,12 +539,12 @@ func test_dispute_bond_too_low() {
 func test_arbitration_outcome_validation() {
     // Test that arbitration outcome is stored correctly
     
-    let mut oracle = OptimisticOracle::constructor(bond_token: ContractAddress::from(0_u128));
+    let mut oracle = OptimisticOracle::constructor(bond_token: addr(0_u128));
     
     let market_id = market_id_1();
-    let proposed_outcome = s'YES';
-    let data_hash = s'0x1234';
-    let data_uri = s'metadata';
+    let proposed_outcome = 'YES';
+    let data_hash = 0x1234;
+    let data_uri = 'metadata';
     let proposer_bond = min_proposer_bond();
     
     // Propose
@@ -557,9 +563,9 @@ func test_arbitration_outcome_validation() {
     
     // Arbiter resolves with a different outcome
     let arbiter = arbiter_address();
-    starknet::set_caller_address(starknet::CallerAddress { value: arbiter.value });
+    starknet::set_caller_address(arbiter);
     
-    let resolved_outcome = s'NO';
+    let resolved_outcome = 'NO';
     oracle.resolve_arbitration(
         market_id: market_id,
         outcome: resolved_outcome

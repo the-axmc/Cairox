@@ -62,6 +62,8 @@ mod Market {
         IOptimisticOracleDispatcher, IOptimisticOracleDispatcherTrait,
     };
     use starknet::ContractAddress;
+    use core::option::OptionTrait;
+    use core::traits::TryInto;
     use starknet::storage::StoragePointerReadAccess;
     use starknet::storage::StoragePointerWriteAccess;
 
@@ -135,7 +137,7 @@ mod Market {
     ) {
         let caller = starknet::get_caller_address();
         self.owner.write(caller);
-        self.pending_owner.write(ContractAddress::from(0_u128));
+        self.pending_owner.write(zero_address());
         self.factory_addr.write(caller);
 
         self.collateral_token.write(collateral_token);
@@ -171,11 +173,11 @@ mod Market {
 
     // Ownership
     #[external(v0)]
-    fn transfer_ownership(ref self: ContractState, new_owner: felt252) {
+    fn transfer_ownership(ref self: ContractState, new_owner: ContractAddress) {
         let current = self.owner.read();
         let caller = starknet::get_caller_address();
         assert(caller == current, 'Not owner');
-        self.pending_owner.write(ContractAddress { value: new_owner });
+        self.pending_owner.write(new_owner);
     }
 
     #[external(v0)]
@@ -184,7 +186,7 @@ mod Market {
         let caller = starknet::get_caller_address();
         assert(caller == pending, 'Not pending');
         self.owner.write(pending);
-        self.pending_owner.write(ContractAddress::from(0_u128));
+        self.pending_owner.write(zero_address());
     }
 
     // Circuit breaker - pause trading
@@ -228,7 +230,7 @@ mod Market {
         // Check circuit breaker
         assert(!self.trading_paused.read(), 'Trading paused');
         assert(self.status.read() == STATE_ACTIVE, 'Market not active');
-        assert(outcome == OUTCOME_YES | outcome == OUTCOME_NO, 'Invalid outcome');
+        assert(outcome == OUTCOME_YES || outcome == OUTCOME_NO, 'Invalid outcome');
 
         // Check limits
         let max_size = self.max_trade_size.read();
@@ -238,7 +240,7 @@ mod Market {
 
         let buyer = starknet::get_caller_address();
         let lmsr_addr = self.lmsr_market_maker.read();
-        assert(lmsr_addr.value != 0, 'LMSR not set');
+        assert(!is_zero_address(lmsr_addr), 'LMSR not set');
         let lmsr = ILMSRMarketMakerDispatcher { contract_address: lmsr_addr };
         let tokens_out = lmsr.calculate_buy_amount(
             self.b_param.read(),
@@ -288,11 +290,11 @@ mod Market {
         self.locked.write(true);
         assert(!self.trading_paused.read(), 'Trading paused');
         assert(self.status.read() == STATE_ACTIVE, 'Market not active');
-        assert(outcome == OUTCOME_YES | outcome == OUTCOME_NO, 'Invalid outcome');
+        assert(outcome == OUTCOME_YES || outcome == OUTCOME_NO, 'Invalid outcome');
 
         let seller = starknet::get_caller_address();
         let lmsr_addr = self.lmsr_market_maker.read();
-        assert(lmsr_addr.value != 0, 'LMSR not set');
+        assert(!is_zero_address(lmsr_addr), 'LMSR not set');
         let lmsr = ILMSRMarketMakerDispatcher { contract_address: lmsr_addr };
         let collateral_out = lmsr.calculate_sell_amount(
             self.b_param.read(),
@@ -341,9 +343,9 @@ mod Market {
     #[external(v0)]
     fn resolve(ref self: ContractState, winning_outcome: felt252) {
         assert(self.status.read() == STATE_ACTIVE, 'Already resolved');
-        assert(winning_outcome == OUTCOME_YES | winning_outcome == OUTCOME_NO, 'Invalid outcome');
+        assert(winning_outcome == OUTCOME_YES || winning_outcome == OUTCOME_NO, 'Invalid outcome');
         let oracle_addr = self.oracle.read();
-        assert(oracle_addr.value == 0, 'Oracle set');
+        assert(is_zero_address(oracle_addr), 'Oracle set');
 
         let caller = starknet::get_caller_address();
         let owner = self.owner.read();
@@ -352,7 +354,7 @@ mod Market {
         // Check authorization
         let is_owner = caller == owner;
         let is_factory = caller == factory;
-        assert(is_owner | is_factory, 'Not authorized');
+        assert(is_owner || is_factory, 'Not authorized');
 
         // Enforce resolution delay
         let now: u256 = starknet::get_block_timestamp().into();
@@ -371,13 +373,13 @@ mod Market {
     fn resolve_from_oracle(ref self: ContractState) {
         assert(self.status.read() == STATE_ACTIVE, 'Already resolved');
         let oracle_addr = self.oracle.read();
-        assert(oracle_addr.value != 0, 'Oracle not set');
+        assert(!is_zero_address(oracle_addr), 'Oracle not set');
         let oracle = IOptimisticOracleDispatcher { contract_address: oracle_addr };
         let market_id = self.market_id.read();
         let status = oracle.get_market_status(market_id);
         assert(status == 2, 'Oracle not resolved');
         let outcome = oracle.get_final_outcome(market_id);
-        assert(outcome == OUTCOME_YES | outcome == OUTCOME_NO, 'Invalid outcome');
+        assert(outcome == OUTCOME_YES || outcome == OUTCOME_NO, 'Invalid outcome');
 
         let now: u256 = starknet::get_block_timestamp().into();
         let created_at = self.created_at.read();
@@ -462,7 +464,7 @@ mod Market {
     #[external(v0)]
     fn get_yes_price(self: @ContractState) -> u256 {
         let lmsr_addr = self.lmsr_market_maker.read();
-        assert(lmsr_addr.value != 0, 'LMSR not set');
+        assert(!is_zero_address(lmsr_addr), 'LMSR not set');
         let lmsr = ILMSRMarketMakerDispatcher { contract_address: lmsr_addr };
         lmsr.get_price(
             self.b_param.read(),
@@ -475,7 +477,7 @@ mod Market {
     #[external(v0)]
     fn get_no_price(self: @ContractState) -> u256 {
         let lmsr_addr = self.lmsr_market_maker.read();
-        assert(lmsr_addr.value != 0, 'LMSR not set');
+        assert(!is_zero_address(lmsr_addr), 'LMSR not set');
         let lmsr = ILMSRMarketMakerDispatcher { contract_address: lmsr_addr };
         lmsr.get_price(
             self.b_param.read(),
@@ -501,5 +503,14 @@ mod Market {
         let caller = starknet::get_caller_address();
         assert(caller == current, 'Not owner');
         self.resolution_delay.write(delay);
+    }
+
+    fn is_zero_address(addr: ContractAddress) -> bool {
+        let felt: felt252 = addr.into();
+        felt == 0
+    }
+
+    fn zero_address() -> ContractAddress {
+        0.try_into().unwrap()
     }
 }

@@ -12,7 +12,7 @@ mod PriceOracle {
     #[storage]
     struct Storage {
         owner: ContractAddress,
-        updaters: Map<ContractAddress, bool>,
+        updaters: Map<ContractAddress, u8>,
         price: u256,
         decimals: u8,
         updated_at: u256,
@@ -22,7 +22,7 @@ mod PriceOracle {
     fn constructor(ref self: ContractState, decimals: u8, initial_price: u256) {
         let caller = starknet::get_caller_address();
         self.owner.write(caller);
-        self.updaters.write(caller, true);
+        self.updaters.write(caller, 1);
         self.price.write(initial_price);
         self.decimals.write(decimals);
         self.updated_at.write(starknet::get_block_timestamp().into());
@@ -33,7 +33,7 @@ mod PriceOracle {
         let caller = starknet::get_caller_address();
         let owner = self.owner.read();
         assert(caller == owner, 'Not owner');
-        self.updaters.write(updater, true);
+        self.updaters.write(updater, 1);
     }
 
     #[external(v0)]
@@ -41,14 +41,14 @@ mod PriceOracle {
         let caller = starknet::get_caller_address();
         let owner = self.owner.read();
         assert(caller == owner, 'Not owner');
-        self.updaters.write(updater, false);
+        self.updaters.write(updater, 0);
     }
 
     #[external(v0)]
     fn update_price(ref self: ContractState, price: u256) {
         let caller = starknet::get_caller_address();
         let authorized = self.updaters.read(caller);
-        assert(authorized, 'Not authorized');
+        assert(authorized == 1, 'Not authorized');
         self.price.write(price);
         self.updated_at.write(starknet::get_block_timestamp().into());
     }

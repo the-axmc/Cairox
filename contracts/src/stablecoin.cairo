@@ -54,7 +54,7 @@ mod Stablecoin {
         price_feed_type: u8,
     ) {
         assert(
-            price_feed_type == PRICE_FEED_CHAINLINK | price_feed_type == PRICE_FEED_ORACLE,
+            price_feed_type == PRICE_FEED_CHAINLINK || price_feed_type == PRICE_FEED_ORACLE,
             'Invalid feed type'
         );
         self.name.write(name);
@@ -183,7 +183,7 @@ mod Stablecoin {
         let owner = self.owner.read();
         assert(caller == owner, 'Not owner');
         assert(
-            feed_type == PRICE_FEED_CHAINLINK | feed_type == PRICE_FEED_ORACLE,
+            feed_type == PRICE_FEED_CHAINLINK || feed_type == PRICE_FEED_ORACLE,
             'Invalid feed type'
         );
         self.price_feed.write(feed);
@@ -203,7 +203,7 @@ mod Stablecoin {
     #[external(v0)]
     fn get_latest_price(self: @ContractState) -> u256 {
         let feed = self.price_feed.read();
-        assert(feed.value != 0, 'No price feed');
+        assert(!is_zero_address(feed), 'No price feed');
         let feed_type = self.price_feed_type.read();
         if feed_type == PRICE_FEED_CHAINLINK {
             let aggregator = IChainlinkAggregatorDispatcher { contract_address: feed };
@@ -218,7 +218,7 @@ mod Stablecoin {
     #[external(v0)]
     fn get_price_decimals(self: @ContractState) -> u8 {
         let feed = self.price_feed.read();
-        assert(feed.value != 0, 'No price feed');
+        assert(!is_zero_address(feed), 'No price feed');
         let feed_type = self.price_feed_type.read();
         if feed_type == PRICE_FEED_CHAINLINK {
             let aggregator = IChainlinkAggregatorDispatcher { contract_address: feed };
@@ -232,7 +232,7 @@ mod Stablecoin {
     #[external(v0)]
     fn get_price_updated_at(self: @ContractState) -> u256 {
         let feed = self.price_feed.read();
-        assert(feed.value != 0, 'No price feed');
+        assert(!is_zero_address(feed), 'No price feed');
         let feed_type = self.price_feed_type.read();
         if feed_type == PRICE_FEED_CHAINLINK {
             let aggregator = IChainlinkAggregatorDispatcher { contract_address: feed };
@@ -242,5 +242,10 @@ mod Stablecoin {
             let oracle = IPriceOracleDispatcher { contract_address: feed };
             oracle.get_updated_at()
         }
+    }
+
+    fn is_zero_address(addr: ContractAddress) -> bool {
+        let felt: felt252 = addr.into();
+        felt == 0
     }
 }

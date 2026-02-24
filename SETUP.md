@@ -6,22 +6,14 @@ This is the Cairox repository for a Starknet-native prediction market protocol.
 
 ### Getting Started
 
-1. **Create the repository on GitHub:**
-   - Go to https://github.com/new
-   - Enter repository name: `cairox`
-   - Select "Public"
-   - Check "Add a README file"
-   - Click "Create repository"
-
-2. **Initialize your local repository:**
+1. **Clone the repository:**
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/cairox.git
-cd cairox
-git remote add upstream https://github.com/OPENCLAW/cairox.git
+git clone https://github.com/the-axmc/Cairox.git
+cd Cairox
 ```
 
-3. **Install dependencies:**
+2. **Install dependencies:**
 
 ```bash
 # Cairo and Scarb
@@ -34,7 +26,7 @@ scarb --version
 snforge --version
 ```
 
-4. **Set up the project:**
+3. **Set up the project:**
 
 ```bash
 # Start local devnet
@@ -50,15 +42,19 @@ make deploy-local
 ### Project Structure
 
 ```
-cairox/
-├── contracts/           # Cairo smart contracts (Scarb workspace)
-├── oracle-agent/        # Data oracle agent
-├── indexer/             # Indexer service (optional)
+Cairox/
+├── contracts/           # Cairo smart contracts (Scarb package)
+├── oracle-agent/        # Data oracle agent (Python)
+├── indexer/             # Indexer service (Python)
+├── bot/                 # Oracle feeder bot
+├── scripts/             # Repo-level utilities
 ├── specs/               # Market specifications (JSON)
+├── docs/                # Protocol documentation
+├── zk/                  # ZK tooling and circuits
 ├── .github/workflows/   # CI workflows
 ├── Makefile             # Build targets
 ├── README.md
-└── spec.md
+└── .env.sample
 ```
 
 ### Makefile Targets
@@ -94,9 +90,14 @@ make deploy-local
 
 The Cairox protocol consists of:
 - **MarketFactory** - Creates prediction markets
-- **ConditionalTokens** - Outcome tokens
-- **Resolver** - Oracle for market resolution
-- **AMM** - Bonding curve market maker
+- **Market** - Core market logic
+- **CollateralVault** - Holds collateral deposits
+- **OutcomeToken** - Outcome tokens
+- **Oracle / OptimisticOracle** - Data commitments and proposals
+- **ResolutionVerifier** - Verifies resolution claims
+- **LMSRMarketMaker / LMSRMulti** - Bonding curve market makers
+- **Arbitration** - Dispute resolution
+- **LaunchConfig** - Market creation parameters
 
 ### Data Integration
 

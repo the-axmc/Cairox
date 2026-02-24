@@ -21,7 +21,7 @@ mod CairoxOracle {
         circuit_state: felt252,
         pause_reason: felt252,
         update_interval: u256,
-        authorized_updaters: Map<felt252, bool>,
+        authorized_updaters: Map<felt252, u8>,
         latest_values: Map<felt252, u256>,
         last_updated: Map<felt252, u256>,
         update_count: Map<felt252, u256>,
@@ -37,7 +37,7 @@ mod CairoxOracle {
         self.circuit_state.write(STATE_NORMAL);
         self.pause_reason.write(0);
         self.update_interval.write(u256 { low: 3600, high: 0 });
-        self.authorized_updaters.write(caller, true);
+        self.authorized_updaters.write(caller, 1);
         self.total_updates.write(u256 { low: 0, high: 0 });
         self.failed_updates.write(u256 { low: 0, high: 0 });
     }
@@ -90,7 +90,7 @@ mod CairoxOracle {
         let current = self.owner.read();
         let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
-        self.authorized_updaters.write(updater, true);
+        self.authorized_updaters.write(updater, 1);
     }
 
     #[external(v0)]
@@ -98,7 +98,7 @@ mod CairoxOracle {
         let current = self.owner.read();
         let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
-        self.authorized_updaters.write(updater, false);
+        self.authorized_updaters.write(updater, 0);
     }
 
     #[external(v0)]
@@ -107,7 +107,7 @@ mod CairoxOracle {
         let caller: felt252 = starknet::get_caller_address().into();
         let owner = self.owner.read();
         let authorized = self.authorized_updaters.read(caller);
-        assert(caller == owner | authorized, 'Not authorized');
+        assert((caller == owner) || (authorized == 1), 'Not authorized');
         
         self.latest_values.write(METRIC_DAW, value);
         let timestamp: u256 = starknet::get_block_timestamp().into();
@@ -126,7 +126,7 @@ mod CairoxOracle {
         let caller: felt252 = starknet::get_caller_address().into();
         let owner = self.owner.read();
         let authorized = self.authorized_updaters.read(caller);
-        assert(caller == owner | authorized, 'Not authorized');
+        assert((caller == owner) || (authorized == 1), 'Not authorized');
         
         self.latest_values.write(METRIC_TXS, value);
         let timestamp: u256 = starknet::get_block_timestamp().into();
@@ -145,7 +145,7 @@ mod CairoxOracle {
         let caller: felt252 = starknet::get_caller_address().into();
         let owner = self.owner.read();
         let authorized = self.authorized_updaters.read(caller);
-        assert(caller == owner | authorized, 'Not authorized');
+        assert((caller == owner) || (authorized == 1), 'Not authorized');
         
         self.latest_values.write(METRIC_CONTRACTS, value);
         let timestamp: u256 = starknet::get_block_timestamp().into();
@@ -164,7 +164,7 @@ mod CairoxOracle {
         let caller: felt252 = starknet::get_caller_address().into();
         let owner = self.owner.read();
         let authorized = self.authorized_updaters.read(caller);
-        assert(caller == owner | authorized, 'Not authorized');
+        assert((caller == owner) || (authorized == 1), 'Not authorized');
         
         self.latest_values.write(METRIC_TOKENS, value);
         let timestamp: u256 = starknet::get_block_timestamp().into();
@@ -182,7 +182,7 @@ mod CairoxOracle {
         let caller: felt252 = starknet::get_caller_address().into();
         let owner = self.owner.read();
         let authorized = self.authorized_updaters.read(caller);
-        assert(caller == owner | authorized, 'Not authorized');
+        assert((caller == owner) || (authorized == 1), 'Not authorized');
         let failed = self.failed_updates.read();
         self.failed_updates.write(failed + u256 { low: 1, high: 0 });
     }

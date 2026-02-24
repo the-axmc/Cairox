@@ -33,6 +33,8 @@ mod OptimisticOracle {
         IResolutionVerifierDispatcherTrait,
     };
     use core::array::SpanTrait;
+    use core::option::OptionTrait;
+    use core::traits::TryInto;
     use starknet::ContractAddress;
     use starknet::storage::Map;
     use starknet::storage::StoragePointerReadAccess;
@@ -48,9 +50,9 @@ mod OptimisticOracle {
         arbiter: ContractAddress,
         verifier: ContractAddress,
         bond_token: ContractAddress,
-        reporters: Map<ContractAddress, bool>,
+        reporters: Map<ContractAddress, u8>,
         market_factory: ContractAddress,
-        registered: Map<felt252, bool>,
+        registered: Map<felt252, u8>,
 
         min_proposer_bond: u256,
         min_dispute_bond: u256,
@@ -66,8 +68,8 @@ mod OptimisticOracle {
         proposer_bond: Map<felt252, u256>,
         disputer: Map<felt252, ContractAddress>,
         disputer_bond: Map<felt252, u256>,
-        disputed: Map<felt252, bool>,
-        fast_path: Map<felt252, bool>,
+        disputed: Map<felt252, u8>,
+        fast_path: Map<felt252, u8>,
     }
 
     #[constructor]
@@ -75,10 +77,10 @@ mod OptimisticOracle {
         let caller = starknet::get_caller_address();
         self.owner.write(caller);
         self.arbiter.write(caller);
-        self.verifier.write(ContractAddress { value: 0 });
+        self.verifier.write(zero_address());
         self.bond_token.write(bond_token);
-        self.reporters.write(caller, true);
-        self.market_factory.write(ContractAddress { value: 0 });
+        self.reporters.write(caller, 1);
+        self.market_factory.write(zero_address());
         self.min_proposer_bond.write(u256 { low: 100, high: 0 });
         self.min_dispute_bond.write(u256 { low: 200, high: 0 });
         self.dispute_window.write(u256 { low: 300, high: 0 });
@@ -89,7 +91,7 @@ mod OptimisticOracle {
         let caller = starknet::get_caller_address();
         let owner = self.owner.read();
         assert(caller == owner, 'Not owner');
-        self.reporters.write(reporter, true);
+        self.reporters.write(reporter, 1);
     }
 
     #[external(v0)]
@@ -97,7 +99,7 @@ mod OptimisticOracle {
         let caller = starknet::get_caller_address();
         let owner = self.owner.read();
         assert(caller == owner, 'Not owner');
-        self.reporters.write(reporter, false);
+        self.reporters.write(reporter, 0);
     }
 
     #[external(v0)]
@@ -129,13 +131,13 @@ mod OptimisticOracle {
         let caller = starknet::get_caller_address();
         let owner = self.owner.read();
         let factory = self.market_factory.read();
-        assert(caller == owner | caller == factory, 'Not authorized');
+        assert(caller == owner || caller == factory, 'Not authorized');
         let already = self.registered.read(market_id);
-        assert(!already, 'Market already registered');
-        self.registered.write(market_id, true);
+        assert(already == 0, 'Market already registered');
+        self.registered.write(market_id, 1);
         self.status.write(market_id, STATE_PENDING);
-        self.disputed.write(market_id, false);
-        self.fast_path.write(market_id, false);
+        self.disputed.write(market_id, 0);
+        self.fast_path.write(market_id, 0);
     }
 
     #[external(v0)]
@@ -156,12 +158,12 @@ mod OptimisticOracle {
         bond: u256
     ) {
         let verifier = self.verifier.read();
-        if verifier.value != 0 {
+        if !is_zero_address(verifier) {
             let verifier_dispatcher = IResolutionVerifierDispatcher { contract_address: verifier };
             let requires = verifier_dispatcher.requires_proof(market_id);
             assert(!requires, 'Proof required');
         }
-        self.internal_propose(market_id, outcome, data_hash, data_uri, bond, false);
+        internal_propose(ref self, market_id, outcome, data_hash, data_uri, bond, false);
     }
 
     #[external(v0)]
@@ -174,18 +176,18 @@ mod OptimisticOracle {
         zk_proof: Span<felt252>
     ) {
         let proof_len = zk_proof.len();
-        assert((proof_len > 0) & (proof_len <= 1000), 'Invalid ZK proof size');
-        self.internal_propose(market_id, outcome, data_hash, 0, bond, true);
+        assert((proof_len > 0) && (proof_len <= 1000), 'Invalid ZK proof size');
+        internal_propose(ref self, market_id, outcome, data_hash, 0, bond, true);
 
         let verifier = self.verifier.read();
-        if verifier.value != 0 {
+        if !is_zero_address(verifier) {
             let verifier_dispatcher = IResolutionVerifierDispatcher { contract_address: verifier };
             let requires = verifier_dispatcher.requires_proof(market_id);
             assert(requires, 'Proof not required');
             let verified = verifier_dispatcher.verify_resolution_proof(market_id, outcome, zk_proof);
             assert(verified, 'Invalid ZK proof');
         }
-        self.fast_path.write(market_id, true);
+        self.fast_path.write(market_id, 1);
     }
 
     #[external(v0)]
@@ -193,32 +195,32 @@ mod OptimisticOracle {
         let status = self.status.read(market_id);
         assert(status == STATE_PROPOSED, 'Wrong state');
         let disputed = self.disputed.read(market_id);
-        assert(!disputed, 'Already disputed');
+        assert(disputed == 0, 'Already disputed');
         let min_bond = self.min_dispute_bond.read();
         assert(bond >= min_bond, 'Bond too low');
-        self.take_bond(bond);
+        take_bond(ref self, bond);
         let caller = starknet::get_caller_address();
         self.disputer.write(market_id, caller);
         self.disputer_bond.write(market_id, bond);
-        self.disputed.write(market_id, true);
+        self.disputed.write(market_id, 1);
     }
 
     #[external(v0)]
     fn finalize(ref self: ContractState, market_id: felt252) {
         let status = self.status.read(market_id);
         assert(status == STATE_PROPOSED, 'Wrong state');
-        assert(!self.disputed.read(market_id), 'DISPUTED');
+        assert(self.disputed.read(market_id) == 0, 'DISPUTED');
 
         let fast_path = self.fast_path.read(market_id);
         let verifier = self.verifier.read();
-        if verifier.value != 0 {
+        if !is_zero_address(verifier) {
             let verifier_dispatcher = IResolutionVerifierDispatcher { contract_address: verifier };
             let requires = verifier_dispatcher.requires_proof(market_id);
             if requires {
-                assert(fast_path, 'Proof required');
+                assert(fast_path == 1, 'Proof required');
             }
         }
-        if !fast_path {
+        if fast_path == 0 {
             let proposed_at = self.proposed_at.read(market_id);
             let window = self.dispute_window.read();
             let now: u256 = starknet::get_block_timestamp().into();
@@ -228,7 +230,7 @@ mod OptimisticOracle {
         let outcome = self.proposed_outcome.read(market_id);
         self.final_outcome.write(market_id, outcome);
         self.status.write(market_id, STATE_RESOLVED);
-        self.refund_proposer(market_id);
+        refund_proposer(ref self, market_id);
     }
 
     #[external(v0)]
@@ -236,11 +238,11 @@ mod OptimisticOracle {
         let status = self.status.read(market_id);
         assert(status == STATE_PROPOSED, 'Wrong state');
         let fast_path = self.fast_path.read(market_id);
-        assert(fast_path, 'Market is not using fast path');
-        assert(!self.disputed.read(market_id), 'DISPUTED');
+        assert(fast_path == 1, 'Market is not using fast path');
+        assert(self.disputed.read(market_id) == 0, 'DISPUTED');
 
         let verifier = self.verifier.read();
-        if verifier.value != 0 {
+        if !is_zero_address(verifier) {
             let verifier_dispatcher = IResolutionVerifierDispatcher { contract_address: verifier };
             let requires = verifier_dispatcher.requires_proof(market_id);
             if requires {
@@ -252,7 +254,7 @@ mod OptimisticOracle {
         let outcome = self.proposed_outcome.read(market_id);
         self.final_outcome.write(market_id, outcome);
         self.status.write(market_id, STATE_RESOLVED);
-        self.refund_proposer(market_id);
+        refund_proposer(ref self, market_id);
     }
 
     #[external(v0)]
@@ -262,12 +264,12 @@ mod OptimisticOracle {
         let caller = starknet::get_caller_address();
         let owner = self.owner.read();
         let arbiter = self.arbiter.read();
-        assert(caller == owner | caller == arbiter, 'Not arbiter');
+        assert(caller == owner || caller == arbiter, 'Not arbiter');
 
         self.final_outcome.write(market_id, outcome);
         self.status.write(market_id, STATE_RESOLVED);
-        self.disputed.write(market_id, false);
-        self.settle_bonds(market_id);
+        self.disputed.write(market_id, 0);
+        settle_bonds(ref self, market_id);
     }
 
     #[external(v0)]
@@ -277,7 +279,7 @@ mod OptimisticOracle {
 
     #[external(v0)]
     fn is_disputed(self: @ContractState, market_id: felt252) -> bool {
-        self.disputed.read(market_id)
+        self.disputed.read(market_id) == 1
     }
 
     #[external(v0)]
@@ -300,17 +302,17 @@ mod OptimisticOracle {
         is_fast_path: bool
     ) {
         let registered = self.registered.read(market_id);
-        assert(registered, 'Market not registered');
+        assert(registered == 1, 'Market not registered');
         let status = self.status.read(market_id);
         assert(status == STATE_PENDING, 'Market exists');
 
         let caller = starknet::get_caller_address();
         let is_reporter = self.reporters.read(caller);
-        assert(is_reporter, 'Not reporter');
+        assert(is_reporter == 1, 'Not reporter');
 
         let min_bond = self.min_proposer_bond.read();
         assert(bond >= min_bond, 'Bond too low');
-        self.take_bond(bond);
+        take_bond(ref self, bond);
 
         self.status.write(market_id, STATE_PROPOSED);
         self.proposed_outcome.write(market_id, outcome);
@@ -319,13 +321,13 @@ mod OptimisticOracle {
         self.proposer.write(market_id, caller);
         self.proposer_bond.write(market_id, bond);
         self.proposed_at.write(market_id, starknet::get_block_timestamp().into());
-        self.disputed.write(market_id, false);
-        self.fast_path.write(market_id, is_fast_path);
+        self.disputed.write(market_id, 0);
+        self.fast_path.write(market_id, if is_fast_path { 1 } else { 0 });
     }
 
     fn take_bond(ref self: ContractState, amount: u256) {
         let token = self.bond_token.read();
-        if token.value == 0 {
+        if is_zero_address(token) {
             return;
         }
         let caller = starknet::get_caller_address();
@@ -337,7 +339,7 @@ mod OptimisticOracle {
 
     fn refund_proposer(ref self: ContractState, market_id: felt252) {
         let token = self.bond_token.read();
-        if token.value == 0 {
+        if is_zero_address(token) {
             return;
         }
         let proposer = self.proposer.read(market_id);
@@ -349,7 +351,7 @@ mod OptimisticOracle {
 
     fn settle_bonds(ref self: ContractState, market_id: felt252) {
         let token = self.bond_token.read();
-        if token.value == 0 {
+        if is_zero_address(token) {
             return;
         }
         let proposer = self.proposer.read(market_id);
@@ -363,5 +365,14 @@ mod OptimisticOracle {
         let erc20 = IERC20Dispatcher { contract_address: token };
         let ok = erc20.transfer(winner, total);
         assert(ok, 'Bond payout failed');
+    }
+
+    fn is_zero_address(addr: ContractAddress) -> bool {
+        let felt: felt252 = addr.into();
+        felt == 0
+    }
+
+    fn zero_address() -> ContractAddress {
+        0.try_into().unwrap()
     }
 }
