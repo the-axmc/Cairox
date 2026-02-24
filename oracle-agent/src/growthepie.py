@@ -52,6 +52,25 @@ class GrowthepieClient:
             raise GrowthepieError(f"HTTP error when accessing {url}: {e}")
         except json.JSONDecodeError as e:
             raise GrowthepieError(f"Failed to parse JSON response from {url}: {e}")
+
+    def normalize_export_response(self, data: Any) -> Dict[str, Any]:
+        """
+        Normalize Growthepie export responses into a dict with a single 'value'.
+
+        The export endpoints return a list of datapoints. We pick the latest by date.
+        """
+        if isinstance(data, list):
+            # Filter Starknet entries if present
+            filtered = [row for row in data if isinstance(row, dict)]
+            starknet = [row for row in filtered if row.get("origin_key") == "starknet"]
+            series = starknet if starknet else filtered
+            if not series:
+                return {"value": None, "raw": data}
+            latest = max(series, key=lambda x: x.get("date", ""))
+            return {"value": latest.get("value"), "raw": latest}
+        if isinstance(data, dict):
+            return data
+        return {"value": data}
     
     def fetch_by_market_id(self, market_id: str) -> Dict[str, Any]:
         """
@@ -65,6 +84,7 @@ class GrowthepieClient:
         """
         # Try various endpoint patterns
         endpoints = [
+            f"/v1/export/{market_id}.json",
             f"/v1/markets/{market_id}",
             f"/v1/metrics/{market_id}",
             f"/api/v1/markets/{market_id}",
@@ -89,8 +109,9 @@ class GrowthepieClient:
             True if the API is reachable, False otherwise
         """
         try:
+            # Growthepie docs list /v1/master.json as the canonical metadata endpoint.
             response = self.session.get(
-                f"{self.base_url}/health",
+                f"{self.base_url}/v1/master.json",
                 timeout=self.timeout
             )
             return response.status_code == 200

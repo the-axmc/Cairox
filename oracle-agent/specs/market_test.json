@@ -1,0 +1,12 @@
+[
+  {
+    "market_id": "0",
+    "endpoint": "/v1/export/daa.json",
+    "resolution_rule": "threshold",
+    "aggregation_method": "latest",
+    "data_key": null,
+    "threshold": 48449,
+    "cutoff": "2026-02-23T00:00:00Z",
+    "market_address": "0x06b46e08f56776a2d8c5e86646f88ee5aea7dd9c7aa00ba41c024e8e72396676"
+  }
+]

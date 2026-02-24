@@ -242,8 +242,8 @@ mod Stablecoin {
         assert(ok, 'Collateral transfer failed');
         self.emit(CollateralDeposited { from: caller, amount });
 
-        let mint_amount = collateral_to_stable(self, amount);
-        mint_internal(self, caller, mint_amount);
+        let mint_amount = collateral_to_stable(@self, amount);
+        mint_internal(ref self, caller, mint_amount);
         self.emit(Minted { to: caller, amount: mint_amount, collateral_in: amount });
         mint_amount
     }
@@ -253,8 +253,8 @@ mod Stablecoin {
     fn redeem(ref self: ContractState, amount: u256) -> u256 {
         assert(!is_zero_u256(amount), 'Zero amount');
         let caller = starknet::get_caller_address();
-        let collateral_out = stable_to_collateral(self, amount);
-        burn_internal(self, caller, amount);
+        let collateral_out = stable_to_collateral(@self, amount);
+        burn_internal(ref self, caller, amount);
 
         let token = IERC20Dispatcher { contract_address: self.collateral_token.read() };
         let ok = token.transfer(caller, collateral_out);
@@ -295,7 +295,7 @@ mod Stablecoin {
         let caller = starknet::get_caller_address();
         let owner = self.owner.read();
         assert(caller == owner, 'Not owner');
-        let price = fetch_price(self);
+        let price = fetch_price(@self);
         self.price_locked.write(true);
         self.locked_price.write(price);
         self.emit(PriceLocked { price });

@@ -129,7 +129,12 @@ class OracleAgent:
             return None
         
         try:
-            return self.growthepie.fetch_by_market_id(endpoint)
+            # If the endpoint is already a full API path, fetch directly.
+            if isinstance(endpoint, str) and endpoint.startswith("/"):
+                raw = self.growthepie.fetch_market_data(endpoint)
+            else:
+                raw = self.growthepie.fetch_by_market_id(endpoint)
+            return self.growthepie.normalize_export_response(raw)
         except GrowthepieError as e:
             print(f"Error fetching market data: {e}")
             return None
