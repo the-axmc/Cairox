@@ -44,6 +44,7 @@ mod MarketFactory {
     use core::array::Array;
     use core::array::ArrayTrait;
     use core::array::SpanTrait;
+    use core::box::BoxTrait;
     use starknet::ContractAddress;
     use starknet::class_hash::ClassHash;
     use starknet::SyscallResultTrait;
@@ -76,8 +77,8 @@ mod MarketFactory {
         b_param: u256,
         oracle: ContractAddress
     ) {
-        let caller = starknet::get_caller_address();
-        self.owner.write(caller);
+        let owner = deployer_address();
+        self.owner.write(owner);
         self.collateral_token.write(collateral_token);
         self.market_class_hash.write(market_class_hash);
         self.outcome_token_class_hash.write(outcome_token_class_hash);
@@ -188,5 +189,10 @@ mod MarketFactory {
     fn is_zero_address(addr: ContractAddress) -> bool {
         let felt: felt252 = addr.into();
         felt == 0
+    }
+
+    fn deployer_address() -> ContractAddress {
+        let tx_info = starknet::get_tx_info().unbox();
+        tx_info.account_contract_address
     }
 }

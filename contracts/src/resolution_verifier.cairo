@@ -24,6 +24,7 @@ mod ResolutionVerifier {
     };
     use core::array::Span;
     use core::array::SpanTrait;
+    use core::box::BoxTrait;
     use core::traits::TryInto;
     use core::option::OptionTrait;
     use starknet::ContractAddress;
@@ -46,8 +47,8 @@ mod ResolutionVerifier {
 
     #[constructor]
     fn constructor(ref self: ContractState) {
-        let caller = starknet::get_caller_address();
-        self.owner.write(caller);
+        let owner = deployer_address();
+        self.owner.write(owner);
         self.oracle.write(zero_address());
         self.signer_pubkey.write(0);
         self.zk_verifier.write(zero_address());
@@ -187,5 +188,10 @@ mod ResolutionVerifier {
 
     fn zero_address() -> ContractAddress {
         0.try_into().unwrap()
+    }
+
+    fn deployer_address() -> ContractAddress {
+        let tx_info = starknet::get_tx_info().unbox();
+        tx_info.account_contract_address
     }
 }

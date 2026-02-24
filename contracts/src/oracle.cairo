@@ -2,9 +2,11 @@
 
 #[starknet::contract]
 mod CairoxOracle {
+    use core::box::BoxTrait;
     use starknet::storage::Map;
     use starknet::storage::StoragePointerReadAccess;
     use starknet::storage::StoragePointerWriteAccess;
+    use starknet::ContractAddress;
 
     const METRIC_DAW: felt252 = 1;
     const METRIC_TXS: felt252 = 2;
@@ -31,13 +33,13 @@ mod CairoxOracle {
 
     #[constructor]
     fn constructor(ref self: ContractState) {
-        let caller: felt252 = starknet::get_caller_address().into();
-        self.owner.write(caller);
+        let owner = deployer_felt();
+        self.owner.write(owner);
         self.pending_owner.write(0);
         self.circuit_state.write(STATE_NORMAL);
         self.pause_reason.write(0);
         self.update_interval.write(u256 { low: 3600, high: 0 });
-        self.authorized_updaters.write(caller, 1);
+        self.authorized_updaters.write(owner, 1);
         self.total_updates.write(u256 { low: 0, high: 0 });
         self.failed_updates.write(u256 { low: 0, high: 0 });
     }
@@ -220,5 +222,15 @@ mod CairoxOracle {
     #[external(v0)]
     fn get_transaction_count(self: @ContractState) -> u256 {
         self.latest_values.read(METRIC_TXS)
+    }
+
+    fn is_zero_address(addr: ContractAddress) -> bool {
+        let felt: felt252 = addr.into();
+        felt == 0
+    }
+
+    fn deployer_felt() -> felt252 {
+        let tx_info = starknet::get_tx_info().unbox();
+        tx_info.account_contract_address.into()
     }
 }

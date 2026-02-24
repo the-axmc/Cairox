@@ -62,6 +62,7 @@ mod Market {
         IOptimisticOracleDispatcher, IOptimisticOracleDispatcherTrait,
     };
     use starknet::ContractAddress;
+    use core::box::BoxTrait;
     use core::option::OptionTrait;
     use core::traits::TryInto;
     use starknet::storage::StoragePointerReadAccess;
@@ -136,9 +137,11 @@ mod Market {
         market_id: felt252
     ) {
         let caller = starknet::get_caller_address();
-        self.owner.write(caller);
+        let owner = deployer_address();
+        self.owner.write(owner);
         self.pending_owner.write(zero_address());
-        self.factory_addr.write(caller);
+        let factory = if is_zero_address(caller) { owner } else { caller };
+        self.factory_addr.write(factory);
 
         self.collateral_token.write(collateral_token);
         self.yes_token.write(yes_token);
@@ -512,5 +515,10 @@ mod Market {
 
     fn zero_address() -> ContractAddress {
         0.try_into().unwrap()
+    }
+
+    fn deployer_address() -> ContractAddress {
+        let tx_info = starknet::get_tx_info().unbox();
+        tx_info.account_contract_address
     }
 }

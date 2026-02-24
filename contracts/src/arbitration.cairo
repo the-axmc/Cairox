@@ -2,9 +2,11 @@
 
 #[starknet::contract]
 mod Arbitration {
+    use core::box::BoxTrait;
     use starknet::storage::Map;
     use starknet::storage::StoragePointerReadAccess;
     use starknet::storage::StoragePointerWriteAccess;
+    use starknet::ContractAddress;
 
     const STATUS_PENDING: felt252 = 0;
     const STATUS_RESOLVED: felt252 = 1;
@@ -30,8 +32,8 @@ mod Arbitration {
 
     #[constructor]
     fn constructor(ref self: ContractState) {
-        let caller: felt252 = starknet::get_caller_address().into();
-        self.owner.write(caller);
+        let owner = deployer_felt();
+        self.owner.write(owner);
         self.min_dispute_interval.write(u256 { low: 3600, high: 0 });
         self.total_disputes.write(u256 { low: 0, high: 0 });
         self.resolved_disputes.write(u256 { low: 0, high: 0 });
@@ -124,5 +126,15 @@ mod Arbitration {
     #[external(v0)]
     fn get_rejected_disputes(self: @ContractState) -> u256 {
         self.rejected_disputes.read()
+    }
+
+    fn is_zero_address(addr: ContractAddress) -> bool {
+        let felt: felt252 = addr.into();
+        felt == 0
+    }
+
+    fn deployer_felt() -> felt252 {
+        let tx_info = starknet::get_tx_info().unbox();
+        tx_info.account_contract_address.into()
     }
 }

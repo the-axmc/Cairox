@@ -2,9 +2,11 @@
 
 #[starknet::contract]
 mod CollateralVault {
+    use core::box::BoxTrait;
     use starknet::storage::Map;
     use starknet::storage::StoragePointerReadAccess;
     use starknet::storage::StoragePointerWriteAccess;
+    use starknet::ContractAddress;
 
     #[storage]
     struct Storage {
@@ -17,8 +19,8 @@ mod CollateralVault {
 
     #[constructor]
     fn constructor(ref self: ContractState) {
-        let caller: felt252 = starknet::get_caller_address().into();
-        self.owner.write(caller);
+        let owner = deployer_felt();
+        self.owner.write(owner);
         self.pending_owner.write(0);
         self.total_deposited.write(u256 { low: 0, high: 0 });
         self.paused.write(false);
@@ -103,5 +105,15 @@ mod CollateralVault {
     #[external(v0)]
     fn is_paused(self: @ContractState) -> bool {
         self.paused.read()
+    }
+
+    fn is_zero_address(addr: ContractAddress) -> bool {
+        let felt: felt252 = addr.into();
+        felt == 0
+    }
+
+    fn deployer_felt() -> felt252 {
+        let tx_info = starknet::get_tx_info().unbox();
+        tx_info.account_contract_address.into()
     }
 }

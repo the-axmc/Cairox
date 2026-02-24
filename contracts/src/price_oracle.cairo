@@ -5,6 +5,8 @@ use starknet::ContractAddress;
 #[starknet::contract]
 mod PriceOracle {
     use super::ContractAddress;
+    use core::box::BoxTrait;
+    use core::traits::TryInto;
     use starknet::storage::Map;
     use starknet::storage::StoragePointerReadAccess;
     use starknet::storage::StoragePointerWriteAccess;
@@ -20,9 +22,9 @@ mod PriceOracle {
 
     #[constructor]
     fn constructor(ref self: ContractState, decimals: u8, initial_price: u256) {
-        let caller = starknet::get_caller_address();
-        self.owner.write(caller);
-        self.updaters.write(caller, 1);
+        let owner = deployer_address();
+        self.owner.write(owner);
+        self.updaters.write(owner, 1);
         self.price.write(initial_price);
         self.decimals.write(decimals);
         self.updated_at.write(starknet::get_block_timestamp().into());
@@ -71,5 +73,15 @@ mod PriceOracle {
     #[external(v0)]
     fn get_owner(self: @ContractState) -> ContractAddress {
         self.owner.read()
+    }
+
+    fn is_zero_address(addr: ContractAddress) -> bool {
+        let felt: felt252 = addr.into();
+        felt == 0
+    }
+
+    fn deployer_address() -> ContractAddress {
+        let tx_info = starknet::get_tx_info().unbox();
+        tx_info.account_contract_address
     }
 }

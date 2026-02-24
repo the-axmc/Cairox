@@ -2,9 +2,11 @@
 
 #[starknet::contract]
 mod LMSRMarketMaker {
+    use core::box::BoxTrait;
     use starknet::storage::Map;
     use starknet::storage::StoragePointerReadAccess;
     use starknet::storage::StoragePointerWriteAccess;
+    use starknet::ContractAddress;
 
     const SCALE: u128 = 1000000000000000000_u128; // 1e18
     const E_SCALED: u128 = 2718281828459045235_u128; // e * 1e18
@@ -19,8 +21,8 @@ mod LMSRMarketMaker {
 
     #[constructor]
     fn constructor(ref self: ContractState) {
-        let caller: felt252 = starknet::get_caller_address().into();
-        self.owner.write(caller);
+        let owner = deployer_felt();
+        self.owner.write(owner);
     }
 
     #[external(v0)]
@@ -201,5 +203,15 @@ mod LMSRMarketMaker {
         let sum = exp_yes + exp_no;
         let ln_sum = ln_fp(sum);
         mul_div(b, ln_sum, SCALE)
+    }
+
+    fn is_zero_address(addr: ContractAddress) -> bool {
+        let felt: felt252 = addr.into();
+        felt == 0
+    }
+
+    fn deployer_felt() -> felt252 {
+        let tx_info = starknet::get_tx_info().unbox();
+        tx_info.account_contract_address.into()
     }
 }

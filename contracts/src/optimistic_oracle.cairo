@@ -33,6 +33,7 @@ mod OptimisticOracle {
         IResolutionVerifierDispatcherTrait,
     };
     use core::array::SpanTrait;
+    use core::box::BoxTrait;
     use core::option::OptionTrait;
     use core::traits::TryInto;
     use starknet::ContractAddress;
@@ -74,12 +75,12 @@ mod OptimisticOracle {
 
     #[constructor]
     fn constructor(ref self: ContractState, bond_token: ContractAddress) {
-        let caller = starknet::get_caller_address();
-        self.owner.write(caller);
-        self.arbiter.write(caller);
+        let owner = deployer_address();
+        self.owner.write(owner);
+        self.arbiter.write(owner);
         self.verifier.write(zero_address());
         self.bond_token.write(bond_token);
-        self.reporters.write(caller, 1);
+        self.reporters.write(owner, 1);
         self.market_factory.write(zero_address());
         self.min_proposer_bond.write(u256 { low: 100, high: 0 });
         self.min_dispute_bond.write(u256 { low: 200, high: 0 });
@@ -374,5 +375,10 @@ mod OptimisticOracle {
 
     fn zero_address() -> ContractAddress {
         0.try_into().unwrap()
+    }
+
+    fn deployer_address() -> ContractAddress {
+        let tx_info = starknet::get_tx_info().unbox();
+        tx_info.account_contract_address
     }
 }
