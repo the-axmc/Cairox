@@ -1,22 +1,38 @@
 use snforge::test;
 use starknet::ContractAddress;
 use cairox_contracts::OptimisticOracle;
+use openzeppelin::math::u256 as u256_lib;
+use core::option::OptionTrait;
+use core::traits::TryInto;
 
 // Helper function to create a test reporter address
 fn reporter_address() -> ContractAddress {
-    ContractAddress::from(0x123456789012345678901234567890123456789012345678901234567890123_u128)
+    addr(0x123456789012345678901234567890123456789012345678901234567890123_u128)
+}
+
+fn addr(value: u128) -> ContractAddress {
+    value.try_into().unwrap()
+}
+
+fn u256_value(amount: u128) -> u256_lib::U256 {
+    u256_lib::U256 {
+        low: amount,
+        high: 0,
+    }
 }
 
 #[test]
 fn test_propose_market() {
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: addr(0_u128));
     
     // Propose a market as the reporter
+    oracle.register_market(market_id: 1);
     oracle.propose(
         market_id: 1,
         outcome: 1,
         data_hash: 0x1234567890abcdef,
-        data_uri: 0x68747470733a2f2f6578616d706c652e636f6d  // "https://example.com"
+        data_uri: 0x68747470733a2f2f6578616d706c652e636f6d,  // "https://example.com"
+        bond: u256_value(100)
     );
     
     let status = oracle.get_market_status(market_id: 1);
@@ -26,29 +42,33 @@ fn test_propose_market() {
 #[test]
 #[should_revert]
 fn test_propose_unauthorized() {
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: addr(0_u128));
     
-    // Try to propose from a non-reporter address (this should fail internally)
-    // Note: In practice, we can't easily change get_caller_address in tests
-    // This test is more about documenting expected behavior
+    // Try to propose from a non-reporter address
+    oracle.register_market(market_id: 1);
+    let non_reporter = reporter_address();
+    starknet::set_caller_address(non_reporter);
     oracle.propose(
         market_id: 1,
         outcome: 1,
         data_hash: 0x1234567890abcdef,
-        data_uri: 0x68747470733a2f2f6578616d706c652e636f6d
+        data_uri: 0x68747470733a2f2f6578616d706c652e636f6d,
+        bond: u256_value(100)
     );
 }
 
 #[test]
 fn test_cannot_finalize_early() {
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: addr(0_u128));
     
     // Propose a market
+    oracle.register_market(market_id: 1);
     oracle.propose(
         market_id: 1,
         outcome: 1,
         data_hash: 0x1234567890abcdef,
-        data_uri: 0x68747470733a2f2f6578616d706c652e636f6d
+        data_uri: 0x68747470733a2f2f6578616d706c652e636f6d,
+        bond: u256_value(100)
     );
     
     // Try to finalize immediately - should fail because dispute window hasn't passed
@@ -58,14 +78,16 @@ fn test_cannot_finalize_early() {
 
 #[test]
 fn test_finalize_after_dispute_window() {
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: addr(0_u128));
     
     // Propose a market
+    oracle.register_market(market_id: 1);
     oracle.propose(
         market_id: 1,
         outcome: 1,
         data_hash: 0x1234567890abcdef,
-        data_uri: 0x68747470733a2f2f6578616d706c652e636f6d
+        data_uri: 0x68747470733a2f2f6578616d706c652e636f6d,
+        bond: u256_value(100)
     );
     
     // Get initial status
@@ -77,6 +99,7 @@ fn test_finalize_after_dispute_window() {
     // For now, we simulate the passage of time in the contract logic
     
     // Finalize after dispute window
+    oracle.set_dispute_window(u256_value(0));
     oracle.finalize(market_id: 1);
     
     // Verify status is RESOLVED
@@ -86,14 +109,16 @@ fn test_finalize_after_dispute_window() {
 
 #[test]
 fn test_market_data_storage() {
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: addr(0_u128));
     
     let proposer = reporter_address();
+    oracle.register_market(market_id: 42);
     oracle.propose(
         market_id: 42,
         outcome: 5,
         data_hash: 0xabc123def456,
-        data_uri: 0x736f6d655f646174615f757269  // "some_data_uri"
+        data_uri: 0x736f6d655f646174615f757269,  // "some_data_uri"
+        bond: u256_value(100)
     );
     
     // Verify we can retrieve the status

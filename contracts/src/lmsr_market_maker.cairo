@@ -1,643 +1,205 @@
-// LMSR Market Maker Contract for Cairox
-// Implements Logarithmic Market Scoring Rule (LMSR) for binary prediction markets
-// Allows users to trade YES/NO shares against an automated market maker
-
-use starknet::ContractAddress;
-use starknet::SyscallResult;
-use starknet::{get_caller_address, StorageAddress};
-use starknet::cast::cast_felt;
-use openzeppelin::token::erc20::interfaces::IERC20Metadata;
-use openzeppelin::math::u256 as u256_lib;
-use openzeppelin::utils::Revertable;
-use openzeppelin::math::felt252_arith::Felt252ArithTrait;
-use super::market_factory::MarketFactory;
-use super::collateral_vault::CollateralVault;
-use super::outcome_token::OutcomeToken;
-use super::oracle::OptimisticOracle;
-
-#[cfg(test)]
-mod test {
-    use starknet::ContractAddress;
-    use starknet::cast::cast_felt;
-    use openzeppelin::math::u256 as u256_lib;
-
-    // Fixed point precision constants
-    pub fn fixed_point_precision() -> u256_lib::U256 {
-        u256_lib::U256 { low: 1_000_000_000_000_000_000_u128, high: 0 } // 1e18
-    }
-
-    // Helper function to create a u256 value
-    pub fn u256_value(amount: u128) -> u256_lib::U256 {
-        u256_lib::U256 {
-            low: amount,
-            high: 0,
-        }
-    }
-
-    // Helper to convert felt252 to u256 (assumes value fits in u128)
-    pub fn felt_to_u256(val: felt252) -> u256_lib::U256 {
-        u256_lib::U256 {
-            low: val.try_into().unwrap(),
-            high: 0,
-        }
-    }
-}
-
-// LMSR Market Maker constants
-// Address constants for integration points
-const MARKET_FACTORY_ADDRESS: felt252 = 0x1;
-const COLLATERAL_VAULT_ADDRESS: felt252 = 0x2;
-const OUTCOME_TOKEN_YES_ADDRESS: felt252 = 0x3;
-const OUTCOME_TOKEN_NO_ADDRESS: felt252 = 0x4;
-const ORACLE_ADDRESS: felt252 = 0x5;
-
-// Resolution outcome constants
-const OUTCOME_YES: felt252 = 0;
-const OUTCOME_NO: felt252 = 1;
-
-// Market state constants
-const STATE_ACTIVE: felt252 = 0;
-const STATE_RESOLVED: felt252 = 1;
-
-#[starknet::interface]
-pub trait ILMSRMarketMaker {
-    fn initialize(ref self: LMSRMarketMaker, collateral_token: starknet::ContractAddress, oracle_address: starknet::ContractAddress, b: felt252);
-    fn buy_yes(ref self: LMSRMarketMaker, amount_collateral: u256_lib::U256, min_tokens_out: u256_lib::U256, sender: starknet::ContractAddress) -> (tokens_out: u256_lib::U256);
-    fn sell_yes(ref self: LMSRMarketMaker, amount_tokens: u256_lib::U256, min_collateral_out: u256_lib::U256, sender: starknet::ContractAddress) -> (collateral_out: u256_lib::U256);
-    fn buy_no(ref self: LMSRMarketMaker, amount_collateral: u256_lib::U256, min_tokens_out: u256_lib::U256, sender: starknet::ContractAddress) -> (tokens_out: u256_lib::U256);
-    fn sell_no(ref self: LMSRMarketMaker, amount_tokens: u256_lib::U256, min_collateral_out: u256_lib::U256, sender: starknet::ContractAddress) -> (collateral_out: u256_lib::U256);
-    fn get_yes_price(self: @LMSRMarketMaker) -> (price: felt252);
-    fn get_no_price(self: @LMSRMarketMaker) -> (price: felt252);
-    fn check_solvency(self: @LMSRMarketMaker) -> (is_solvent: bool);
-    fn resolve_market(ref self: LMSRMarketMaker, outcome: felt252);
-    fn get_market_state(self: @LMSRMarketMaker) -> felt252;
-    fn get_b_parameter(self: @LMSRMarketMaker) -> felt252;
-}
-
-// Helper structs
-#[derive(Drop, CairoShape)]
-struct LMSRStorage {
-    /// Collateral token contract address
-    collateral_token: starknet::ContractAddress,
-    /// Oracle contract address
-    oracle_address: starknet::ContractAddress,
-    /// Liquidity parameter b (controls spread)
-    b: felt252,
-    /// Market state: 0 = active, 1 = resolved
-    market_state: felt252,
-    /// Total quantities of YES and NO tokens in circulation (for LMSR calculations)
-    /// These represent q_yes and q_no in the LMSR formula
-    total_quantity_yes: u256_lib::U256,
-    total_quantity_no: u256_lib::U256,
-    /// Total collateral held in vault (for solvency checking)
-    vault_collateral: u256_lib::U256,
-    /// Market ID for this market maker
-    market_id: felt252,
-}
+// LMSRMarketMaker - Logarithmic Market Scoring Rule implementation
 
 #[starknet::contract]
 mod LMSRMarketMaker {
-    use super::{test, ILMSRMarketMaker, LMSRStorage};
-    use starknet::SyscallResult;
-    use starknet::{get_caller_address, StorageAddress};
-    use starknet::cast::cast_felt;
-    use openzeppelin::token::erc20::interfaces::IERC20Metadata;
-    use openzeppelin::math::u256 as u256_lib;
-    use openzeppelin::math::felt252_arith::Felt252ArithTrait;
-    use openzeppelin::utils::Revertable;
+    use starknet::storage::Map;
+    use starknet::storage::StoragePointerReadAccess;
+    use starknet::storage::StoragePointerWriteAccess;
+
+    const SCALE: u128 = 1000000000000000000_u128; // 1e18
+    const E_SCALED: u128 = 2718281828459045235_u128; // e * 1e18
+    const MAX_EXP_INPUT: u128 = 10000000000000000000_u128; // 10 * 1e18
+    const EXP_TERMS: u128 = 10_u128;
 
     #[storage]
     struct Storage {
-        /// LMSR internal state
-        lmsr: LMSRStorage,
+        owner: felt252,
+        b_params: Map<felt252, u256>,
     }
 
-    /// Fixed point precision (1e18)
-    const FIXED_POINT_PRECISION: felt252 = 1_000_000_000_000_000_000;
-
-    /// Initializes the LMSR market maker
-    /// @param collateral_token The address of USDC collateral token
-    /// @param oracle_address The address of the OptimisticOracle for resolution
-    /// @param b The liquidity parameter (controls spread, higher = more liquid)
-    #[external]
-    #[init]
-    fn initialize(ref self: LMSRMarketMaker, collateral_token: starknet::ContractAddress, oracle_address: starknet::ContractAddress, b: felt252) {
-        let caller = get_caller_address();
-        
-        // Only allow initialization by the market factory
-        let market_factory_felt = cast_felt(MARKET_FACTORY_ADDRESS);
-        assert(caller.value == market_factory_felt, 'Unauthorized: only market factory can initialize');
-        
-        // Initialize LMSR storage
-        self.lmsr.write(LMSRStorage {
-            collateral_token: collateral_token,
-            oracle_address: oracle_address,
-            b: b,
-            market_state: STATE_ACTIVE,
-            total_quantity_yes: u256_lib::U256 { low: 0, high: 0 },
-            total_quantity_no: u256_lib::U256 { low: 0, high: 0 },
-            vault_collateral: u256_lib::U256 { low: 0, high: 0 },
-            market_id: 0, // Will be set by market factory
-        });
+    #[constructor]
+    fn constructor(ref self: ContractState) {
+        let caller: felt252 = starknet::get_caller_address().into();
+        self.owner.write(caller);
     }
 
-    /// Buys YES tokens by contributing collateral
-    /// @param amount_collateral Amount of collateral to spend
-    /// @param min_tokens_out Minimum YES tokens to receive
-    /// @param sender Buyer address
-    /// @return tokens_out Number of YES tokens received
-    #[external]
-    fn buy_yes(ref self: LMSRMarketMaker, amount_collateral: u256_lib::U256, min_tokens_out: u256_lib::U256, sender: starknet::ContractAddress) -> (tokens_out: u256_lib::U256) {
-        let caller = get_caller_address();
-        
-        // Market must be active
-        let state = self.lmsr.read().market_state;
-        assert(state == STATE_ACTIVE, 'Market is resolved');
-        
-        // Check solvency before trade (market maker must be able to pay)
-        let solvent = Self::check_solvency(@LMSRMarketMaker { storage: self.storage });
-        assert(solvent, 'Market would become insolvent');
-        
-        // Calculate tokens to mint
-        let tokens_out = Self::calculate_tokens_bought(
-            @LMSRMarketMaker { storage: self.storage },
-            amount_collateral,
-            true // buying YES
-        );
-        
-        // Enforce minimum output
-        assert(u256_lib::U256_ge(tokens_out, min_tokens_out), 'Slippage exceeded');
-        
-        // Transfer collateral from sender to vault
-        Self::transfer_collateral_in(ref self, caller, amount_collateral);
-        
-        // Mint YES tokens to sender
-        Self::mint_yes_tokens(ref self, sender, tokens_out);
-        
-        // Update internal state
-        let mut lmsr = self.lmsr.read();
-        lmsr.total_quantity_yes = u256_lib::U256_add(lmsr.total_quantity_yes, tokens_out);
-        lmsr.vault_collateral = u256_lib::U256_add(lmsr.vault_collateral, amount_collateral);
-        self.lmsr.write(lmsr);
-        
-        // Check solvency after trade
-        let solvent_after = Self::check_solvency(@LMSRMarketMaker { storage: self.storage });
-        assert(solvent_after, 'Market is insolvent after trade');
-        
-        (tokens_out,)
+    #[external(v0)]
+    fn set_b_param(ref self: ContractState, market: felt252, b: u256) {
+        self.b_params.write(market, b);
     }
 
-    /// Sells YES tokens for collateral
-    /// @param amount_tokens Amount of YES tokens to sell
-    /// @param min_collateral_out Minimum collateral to receive
-    /// @param sender Seller address
-    /// @return collateral_out Amount of collateral received
-    #[external]
-    fn sell_yes(ref self: LMSRMarketMaker, amount_tokens: u256_lib::U256, min_collateral_out: u256_lib::U256, sender: starknet::ContractAddress) -> (collateral_out: u256_lib::U256) {
-        let caller = get_caller_address();
-        
-        // Market must be active
-        let state = self.lmsr.read().market_state;
-        assert(state == STATE_ACTIVE, 'Market is resolved');
-        
-        // Burn YES tokens from sender
-        Self::burn_yes_tokens(ref self, sender, amount_tokens);
-        
-        // Calculate collateral to return
-        let collateral_out = Self::calculate_collateral_returned(
-            @LMSRMarketMaker { storage: self.storage },
-            amount_tokens,
-            true // selling YES
-        );
-        
-        // Enforce minimum output
-        assert(u256_lib::U256_ge(collateral_out, min_collateral_out), 'Slippage exceeded');
-        
-        // Transfer collateral to sender from vault
-        Self::transfer_collateral_out(ref self, caller, collateral_out);
-        
-        // Update internal state
-        let mut lmsr = self.lmsr.read();
-        lmsr.total_quantity_yes = u256_lib::U256_sub(lmsr.total_quantity_yes, amount_tokens).unwrap();
-        lmsr.vault_collateral = u256_lib::U256_sub(lmsr.vault_collateral, collateral_out).unwrap();
-        self.lmsr.write(lmsr);
-        
-        // Check solvency after trade
-        let solvent = Self::check_solvency(@LMSRMarketMaker { storage: self.storage });
-        assert(solvent, 'Market is insolvent after trade');
-        
-        (collateral_out,)
+    #[external(v0)]
+    fn calculate_buy_amount(
+        self: @ContractState,
+        b: u256,
+        yes_supply: u256,
+        no_supply: u256,
+        outcome: felt252,
+        collateral: u256
+    ) -> u256 {
+        assert(outcome == 0 || outcome == 1, 'Invalid outcome');
+        let b_u = u256_to_u128(b);
+        assert(b_u > 0, 'b=0');
+        let yes_u = u256_to_u128(yes_supply);
+        let no_u = u256_to_u128(no_supply);
+        let collateral_u = u256_to_u128(collateral);
+
+        let (q_buy, q_other) = if outcome == 1 { (yes_u, no_u) } else { (no_u, yes_u) };
+
+        let exp_buy = exp_ratio(q_buy, b_u);
+        let exp_other = exp_ratio(q_other, b_u);
+        let sum = exp_buy + exp_other;
+
+        let cost_fp = mul_div(collateral_u, SCALE, b_u);
+        assert(cost_fp <= MAX_EXP_INPUT, 'exp overflow');
+        let exp_cost = exp_fp(cost_fp);
+
+        // exp(delta/b) = (exp(cost/b) * (exp(q_buy/b)+exp(q_other/b)) - exp(q_other/b)) / exp(q_buy/b)
+        let term = mul_div(exp_cost, sum, SCALE);
+        assert(term > exp_other, 'Invalid collateral');
+        let numerator = term - exp_other;
+        let ratio = mul_div(numerator, SCALE, exp_buy);
+        let ln_ratio = ln_fp(ratio);
+        let delta = mul_div(b_u, ln_ratio, SCALE);
+
+        u256 { low: delta, high: 0 }
     }
 
-    /// Buys NO tokens by contributing collateral
-    /// @param amount_collateral Amount of collateral to spend
-    /// @param min_tokens_out Minimum NO tokens to receive
-    /// @param sender Buyer address
-    /// @return tokens_out Number of NO tokens received
-    #[external]
-    fn buy_no(ref self: LMSRMarketMaker, amount_collateral: u256_lib::U256, min_tokens_out: u256_lib::U256, sender: starknet::ContractAddress) -> (tokens_out: u256_lib::U256) {
-        let caller = get_caller_address();
-        
-        // Market must be active
-        let state = self.lmsr.read().market_state;
-        assert(state == STATE_ACTIVE, 'Market is resolved');
-        
-        // Check solvency before trade
-        let solvent = Self::check_solvency(@LMSRMarketMaker { storage: self.storage });
-        assert(solvent, 'Market would become insolvent');
-        
-        // Calculate tokens to mint
-        let tokens_out = Self::calculate_tokens_bought(
-            @LMSRMarketMaker { storage: self.storage },
-            amount_collateral,
-            false // buying NO
-        );
-        
-        // Enforce minimum output
-        assert(u256_lib::U256_ge(tokens_out, min_tokens_out), 'Slippage exceeded');
-        
-        // Transfer collateral from sender to vault
-        Self::transfer_collateral_in(ref self, caller, amount_collateral);
-        
-        // Mint NO tokens to sender
-        Self::mint_no_tokens(ref self, sender, tokens_out);
-        
-        // Update internal state
-        let mut lmsr = self.lmsr.read();
-        lmsr.total_quantity_no = u256_lib::U256_add(lmsr.total_quantity_no, tokens_out);
-        lmsr.vault_collateral = u256_lib::U256_add(lmsr.vault_collateral, amount_collateral);
-        self.lmsr.write(lmsr);
-        
-        // Check solvency after trade
-        let solvent_after = Self::check_solvency(@LMSRMarketMaker { storage: self.storage });
-        assert(solvent_after, 'Market is insolvent after trade');
-        
-        (tokens_out,)
+    #[external(v0)]
+    fn calculate_sell_amount(
+        self: @ContractState,
+        b: u256,
+        yes_supply: u256,
+        no_supply: u256,
+        outcome: felt252,
+        tokens: u256
+    ) -> u256 {
+        assert(outcome == 0 || outcome == 1, 'Invalid outcome');
+        let b_u = u256_to_u128(b);
+        assert(b_u > 0, 'b=0');
+        let yes_u = u256_to_u128(yes_supply);
+        let no_u = u256_to_u128(no_supply);
+        let tokens_u = u256_to_u128(tokens);
+
+        let (q_sell, q_other) = if outcome == 1 { (yes_u, no_u) } else { (no_u, yes_u) };
+        assert(q_sell >= tokens_u, 'Insufficient supply');
+
+        let cost_before = cost(b_u, q_sell, q_other);
+        let cost_after = cost(b_u, q_sell - tokens_u, q_other);
+        assert(cost_before >= cost_after, 'Invalid cost');
+        let collateral_out = cost_before - cost_after;
+
+        u256 { low: collateral_out, high: 0 }
     }
 
-    /// Sells NO tokens for collateral
-    /// @param amount_tokens Amount of NO tokens to sell
-    /// @param min_collateral_out Minimum collateral to receive
-    /// @param sender Seller address
-    /// @return collateral_out Amount of collateral received
-    #[external]
-    fn sell_no(ref self: LMSRMarketMaker, amount_tokens: u256_lib::U256, min_collateral_out: u256_lib::U256, sender: starknet::ContractAddress) -> (collateral_out: u256_lib::U256) {
-        let caller = get_caller_address();
-        
-        // Market must be active
-        let state = self.lmsr.read().market_state;
-        assert(state == STATE_ACTIVE, 'Market is resolved');
-        
-        // Burn NO tokens from sender
-        Self::burn_no_tokens(ref self, sender, amount_tokens);
-        
-        // Calculate collateral to return
-        let collateral_out = Self::calculate_collateral_returned(
-            @LMSRMarketMaker { storage: self.storage },
-            amount_tokens,
-            false // selling NO
-        );
-        
-        // Enforce minimum output
-        assert(u256_lib::U256_ge(collateral_out, min_collateral_out), 'Slippage exceeded');
-        
-        // Transfer collateral to sender from vault
-        Self::transfer_collateral_out(ref self, caller, collateral_out);
-        
-        // Update internal state
-        let mut lmsr = self.lmsr.read();
-        lmsr.total_quantity_no = u256_lib::U256_sub(lmsr.total_quantity_no, amount_tokens).unwrap();
-        lmsr.vault_collateral = u256_lib::U256_sub(lmsr.vault_collateral, collateral_out).unwrap();
-        self.lmsr.write(lmsr);
-        
-        // Check solvency after trade
-        let solvent = Self::check_solvency(@LMSRMarketMaker { storage: self.storage });
-        assert(solvent, 'Market is insolvent after trade');
-        
-        (collateral_out,)
-    }
+    #[external(v0)]
+    fn get_price(
+        self: @ContractState,
+        b: u256,
+        yes_supply: u256,
+        no_supply: u256,
+        outcome: felt252
+    ) -> u256 {
+        assert(outcome == 0 || outcome == 1, 'Invalid outcome');
+        let b_u = u256_to_u128(b);
+        assert(b_u > 0, 'b=0');
+        let yes_u = u256_to_u128(yes_supply);
+        let no_u = u256_to_u128(no_supply);
 
-    /// Gets current price of YES token
-    /// @return price Price as fixed-point number (scaled by 1e18)
-    #[external]
-    fn get_yes_price(self: @LMSRMarketMaker) -> (price: felt252) {
-        let lmsr = self.lmsr.read();
-        
-        // Price formula: p_yes = e^(q_yes/b) / (e^(q_yes/b) + e^(q_no/b))
-        let b = lmsr.b;
-        let q_yes = Self::u256_to_felt(lmsr.total_quantity_yes);
-        let q_no = Self::u256_to_felt(lmsr.total_quantity_no);
-        
-        // Calculate e^(q_yes/b) and e^(q_no/b)
-        let exp_q_yes = Self::fixed_point_exp(Self::div_fixed(q_yes, b));
-        let exp_q_no = Self::fixed_point_exp(Self::div_fixed(q_no, b));
-        
-        // Calculate price
-        let denominator = Self::add_fixed(exp_q_yes, exp_q_no);
-        Self::div_fixed(exp_q_yes, denominator)
-    }
-
-    /// Gets current price of NO token
-    /// @return price Price as fixed-point number (scaled by 1e18)
-    #[external]
-    fn get_no_price(self: @LMSRMarketMaker) -> (price: felt252) {
-        // p_no = 1 - p_yes
-        let yes_price = Self::get_yes_price(@LMSRMarketMaker { storage: self.storage });
-        Self::sub_fixed(FIXED_POINT_PRECISION, yes_price)
-    }
-
-    /// Checks if the market maker is solvent
-    /// Solvent if: vault_collateral >= max_payout
-    /// max_payout = total_quantity_yes + total_quantity_no (in worst case, both pay 1)
-    /// @return is_solvent True if solvent
-    #[external]
-    fn check_solvency(self: @LMSRMarketMaker) -> (is_solvent: bool) {
-        let lmsr = self.lmsr.read();
-        
-        // Maximum possible payout is the total tokens outstanding
-        // Since each token pays 1 unit of collateral if correct
-        let max_payout = u256_lib::U256_add(lmsr.total_quantity_yes, lmsr.total_quantity_no);
-        
-        (u256_lib::U256_ge(lmsr.vault_collateral, max_payout),)
-    }
-
-    /// Resolves the market based on oracle outcome
-    /// @param outcome The winning outcome (OUTCOME_YES or OUTCOME_NO)
-    #[external]
-    fn resolve_market(ref self: LMSRMarketMaker, outcome: felt252) {
-        let caller = get_caller_address();
-        
-        // Only the oracle can resolve
-        let oracle_addr = self.lmsr.read().oracle_address;
-        assert(caller.value == oracle_addr.value, 'Unauthorized: only oracle can resolve');
-        
-        // Check oracle status
-        let oracle = OptimisticOracle::ContractState { storage: self.storage };
-        let status = OptimisticOracle::IOptimisticOracle::get_market_status(@oracle, self.lmsr.read().market_id);
-        assert(status == 2, 'Market not ready for resolution'); // RESOLVED
-        
-        // Update market state
-        let mut lmsr = self.lmsr.read();
-        lmsr.market_state = STATE_RESOLVED;
-        self.lmsr.write(lmsr);
-        
-        // Note: Token redemption is handled by separate function or user action
-    }
-
-    /// Gets the current market state
-    /// @return market_state 0 = active, 1 = resolved
-    #[external]
-    fn get_market_state(self: @LMSRMarketMaker) -> felt252 {
-        self.lmsr.read().market_state
-    }
-
-    /// Gets the b parameter (liquidity parameter)
-    /// @return b The b parameter
-    #[external]
-    fn get_b_parameter(self: @LMSRMarketMaker) -> felt252 {
-        self.lmsr.read().b
-    }
-
-    // ==================== Internal Helper Functions ====================
-
-    /// Calculates tokens received when buying with collateral
-    /// Uses LMSR cost function: C(q) = b * ln(e^(q_yes/b) + e^(q_no/b))
-    /// Delta C for buying tokens = C(new_q) - C(old_q)
-    fn calculate_tokens_bought(
-        self: @LMSRMarketMaker,
-        amount_collateral: u256_lib::U256,
-        buying_yes: bool
-    ) -> u256_lib::U256 {
-        let lmsr = self.lmsr.read();
-        let b = lmsr.b;
-        let q_yes = Self::u256_to_felt(lmsr.total_quantity_yes);
-        let q_no = Self::u256_to_felt(lmsr.total_quantity_no);
-        
-        // Current cost
-        let current_cost = Self::calculate_cost(q_yes, q_no, b);
-        
-        // New cost after adding collateral
-        let collateral_felt = Self::u256_to_felt(amount_collateral);
-        let new_cost = Self::add_fixed(current_cost, collateral_felt);
-        
-        // Solve for new quantity using inverse cost function
-        // This is complex - for simplicity, use numerical approximation
-        // In production, implement proper inverse LMSR calculation
-        
-        // For now, use a simplified approach: approximate tokens = collateral / price
-        let price = if buying_yes {
-            Self::get_yes_price(@LMSRMarketMaker { storage: self.storage })
+        let exp_yes = exp_ratio(yes_u, b_u);
+        let exp_no = exp_ratio(no_u, b_u);
+        let sum = exp_yes + exp_no;
+        let price = if outcome == 1 {
+            mul_div(exp_yes, SCALE, sum)
         } else {
-            Self::get_no_price(@LMSRMarketMaker { storage: self.storage })
+            mul_div(exp_no, SCALE, sum)
         };
-        
-        // tokens ≈ collateral / price
-        // tokens * price ≈ collateral
-        // Using fixed point: tokens * 1e18 / price = collateral
-        // tokens = collateral * price / 1e18
-        
-        if price == 0 {
-            return u256_lib::U256 { low: 0, high: 0 };
-        }
-        
-        // scaled_collateral = amount_collateral * 1e18
-        let mut scaled_collateral = amount_collateral;
-        scaled_collateral = u256_lib::U256_mul(scaled_collateral, u256_lib::U256 { low: 1_000_000_000_000_000_000_u128, high: 0 });
-        
-        // tokens = scaled_collateral / price_felt
-        // price_felt is already scaled by 1e18
-        let price_u256 = Self::felt_to_u256(price);
-        u256_lib::U256_div(scaled_collateral, price_u256)
+        u256 { low: price, high: 0 }
     }
 
-    /// Calculates collateral returned when selling tokens
-    fn calculate_collateral_returned(
-        self: @LMSRMarketMaker,
-        amount_tokens: u256_lib::U256,
-        selling_yes: bool
-    ) -> u256_lib::U256 {
-        let lmsr = self.lmsr.read();
-        let b = lmsr.b;
-        let q_yes = Self::u256_to_felt(lmsr.total_quantity_yes);
-        let q_no = Self::u256_to_felt(lmsr.total_quantity_no);
-        
-        // Calculate new quantities after selling
-        let new_q_yes = if selling_yes {
-            u256_lib::U256_sub(lmsr.total_quantity_yes, amount_tokens).unwrap()
-        } else {
-            lmsr.total_quantity_yes
-        };
-        let new_q_no = if !selling_yes {
-            u256_lib::U256_sub(lmsr.total_quantity_no, amount_tokens).unwrap()
-        } else {
-            lmsr.total_quantity_no
-        };
-        
-        let new_q_yes_felt = Self::u256_to_felt(new_q_yes);
-        let new_q_no_felt = Self::u256_to_felt(new_q_no);
-        
-        // Old cost and new cost
-        let old_cost = Self::calculate_cost(q_yes, q_no, b);
-        let new_cost = Self::calculate_cost(new_q_yes_felt, new_q_no_felt, b);
-        
-        // Collateral returned = old_cost - new_cost
-        Self::sub_fixed(old_cost, new_cost)
+    #[external(v0)]
+    fn get_initial_cost(self: @ContractState, b: u256) -> u256 {
+        let b_u = u256_to_u128(b);
+        assert(b_u > 0, 'b=0');
+        let cost = cost(b_u, 0_u128, 0_u128);
+        u256 { low: cost, high: 0 }
     }
 
-    /// Calculates LMSR cost function C(q) = b * ln(e^(q_yes/b) + e^(q_no/b))
-    fn calculate_cost(q_yes: felt252, q_no: felt252, b: felt252) -> felt252 {
-        if b == 0 {
-            return 0;
-        }
-        
-        // e^(q_yes/b) and e^(q_no/b)
-        let exp_q_yes = Self::fixed_point_exp(Self::div_fixed(q_yes, b));
-        let exp_q_no = Self::fixed_point_exp(Self::div_fixed(q_no, b));
-        
-        // ln(e^(q_yes/b) + e^(q_no/b))
-        let sum_exp = Self::add_fixed(exp_q_yes, exp_q_no);
-        let ln_sum = Self::fixed_point_ln(sum_exp);
-        
-        // b * ln(...)
-        Self::mul_fixed(b, ln_sum)
+    fn u256_to_u128(x: u256) -> u128 {
+        assert(x.high == 0, 'u256 overflow');
+        x.low
     }
 
-    /// Transfers collateral into the vault
-    fn transfer_collateral_in(ref self: LMSRMarketMaker, user: starknet::ContractAddress, amount: u256_lib::U256) {
-        let collateral_token = self.lmsr.read().collateral_token;
-        IERC20Metadata::transfer_from(
-            ref contract: collateral_token,
-            from: user,
-            to: self.storage.contract_address,
-            amount: amount
-        );
+    fn mul_div(a: u128, b: u128, denom: u128) -> u128 {
+        assert(denom != 0, 'div by zero');
+        a * b / denom
     }
 
-    /// Transfers collateral out of the vault
-    fn transfer_collateral_out(ref self: LMSRMarketMaker, user: starknet::ContractAddress, amount: u256_lib::U256) {
-        let collateral_token = self.lmsr.read().collateral_token;
-        IERC20Metadata::transfer(
-            ref contract: collateral_token,
-            to: user,
-            amount: amount
-        );
+    fn exp_ratio(q: u128, b: u128) -> u128 {
+        let x = mul_div(q, SCALE, b);
+        assert(x <= MAX_EXP_INPUT, 'exp overflow');
+        exp_fp(x)
     }
 
-    /// Mints YES tokens
-    fn mint_yes_tokens(ref self: LMSRMarketMaker, to: starknet::ContractAddress, amount: u256_lib::U256) {
-        // In production, this would mint to the actual YES token contract
-        // For now, we simulate by updating a balance
-        // Actual implementation would store YES token address
-    }
-
-    /// Burns YES tokens
-    fn burn_yes_tokens(ref self: LMSRMarketMaker, from: starknet::ContractAddress, amount: u256_lib::U256) {
-        // In production, this would burn from the actual YES token contract
-        // For now, we simulate by updating a balance
-    }
-
-    /// Mints NO tokens
-    fn mint_no_tokens(ref self: LMSRMarketMaker, to: starknet::ContractAddress, amount: u256_lib::U256) {
-        // In production, this would mint to the actual NO token contract
-    }
-
-    /// Burns NO tokens
-    fn burn_no_tokens(ref self: LMSRMarketMaker, from: starknet::ContractAddress, amount: u256_lib::U256) {
-        // In production, this would burn from the actual NO token contract
-    }
-
-    // ==================== Fixed Point Math Functions ====================
-
-    /// Converts u256 to felt252 (scales by 1e18 for fixed-point)
-    fn u256_to_felt(value: u256_lib::U256) -> felt252 {
-        // For simplicity, assume value fits in u128 * 1e18
-        let low = value.low;
-        // This is a simplified conversion
-        low as felt252
-    }
-
-    /// Converts felt252 to u256 (assumes value fits in u128)
-    fn felt_to_u256(val: felt252) -> u256_lib::U256 {
-        u256_lib::U256 {
-            low: val.try_into().unwrap_or(0),
-            high: 0,
-        }
-    }
-
-    /// Adds two fixed-point numbers
-    fn add_fixed(a: felt252, b: felt252) -> felt252 {
-        a + b
-    }
-
-    /// Subtracts two fixed-point numbers
-    fn sub_fixed(a: felt252, b: felt252) -> felt252 {
-        a - b
-    }
-
-    /// Multiplies two fixed-point numbers
-    fn mul_fixed(a: felt252, b: felt252) -> felt252 {
-        (a as u128 as u256_lib::U256 * b as u128 as u256_lib::U256 / FIXED_POINT_PRECISION as u128 as u256_lib::U256) as u128 as felt252
-    }
-
-    /// Divides two fixed-point numbers
-    fn div_fixed(a: felt252, b: felt252) -> felt252 {
-        if b == 0 {
-            panic('Division by zero');
-        }
-        (a as u128 as u256_lib::U256 * FIXED_POINT_PRECISION as u128 as u256_lib::U256 / b as u128 as u256_lib::U256) as u128 as felt252
-    }
-
-    /// Fixed-point exponential function using Taylor series
-    /// exp(x) = 1 + x + x^2/2! + x^3/3! + ...
-    fn fixed_point_exp(x: felt252) -> felt252 {
-        let precision = FIXED_POINT_PRECISION;
-        let mut result = precision;
-        let mut term = precision;
-        let mut n = 1;
-        
-        // Limit iterations to prevent infinite loop
-        while n < 50 {
-            // term = term * x / n
-            let scaled_x = x;
-            term = (term as u128 as u256_lib::U256 * scaled_x as u128 as u256_lib::U256 / n as u128 as u256_lib::U256) as u128 as felt252;
-            result = result + term;
-            
-            // Check for convergence
-            if term.abs() < 1000 { // Small threshold for convergence
+    fn exp_fp(x: u128) -> u128 {
+        // Split x into integer and fractional parts to extend range
+        let k = x / SCALE;
+        assert(k <= 10, 'exp overflow');
+        let r = x - k * SCALE;
+        let mut result = exp_series(r);
+        let mut i = 0_u128;
+        loop {
+            if i >= k {
                 break;
             }
-            n += 1;
-        }
-        
+            result = mul_div(result, E_SCALED, SCALE);
+            i += 1;
+        };
         result
     }
 
-    /// Fixed-point natural logarithm
-    /// ln(x) using Newton's method or series expansion
-    fn fixed_point_ln(x: felt252) -> felt252 {
-        if x <= 0 {
-            panic('LN of non-positive number');
-        }
-        
-        let precision = FIXED_POINT_PRECISION;
-        
-        // For x close to 1, use series: ln(1+y) = y - y^2/2 + y^3/3 - ...
-        // Reduce x to range [0.5, 2] for better convergence
-        let mut y = x - precision; // y = x - 1
-        let mut result = 0;
-        let mut term = y;
-        let mut n = 1;
-        
-        while n < 100 {
-            result = result + term / n as felt252;
-            term = term * (precision - y) / precision;
-            
-            if term.abs() < 1000 {
+    fn exp_series(r: u128) -> u128 {
+        let mut term = SCALE;
+        let mut sum = SCALE;
+        let mut i = 1_u128;
+        loop {
+            if i > EXP_TERMS {
                 break;
             }
-            n += 1;
-        }
-        
-        result
+            term = mul_div(term, r, SCALE);
+            term = term / i;
+            sum = sum + term;
+            i += 1;
+        };
+        sum
+    }
+
+    fn ln_fp(y: u128) -> u128 {
+        assert(y > 0, 'ln undefined');
+        let mut low = 0_u128;
+        let mut high = MAX_EXP_INPUT;
+        let mut i = 0_u32;
+        loop {
+            if i >= 64 {
+                break;
+            }
+            let mid = (low + high) / 2;
+            let exp_mid = exp_fp(mid);
+            if exp_mid > y {
+                high = mid;
+            } else {
+                low = mid;
+            }
+            i += 1;
+        };
+        low
+    }
+
+    fn cost(b: u128, q_yes: u128, q_no: u128) -> u128 {
+        let exp_yes = exp_ratio(q_yes, b);
+        let exp_no = exp_ratio(q_no, b);
+        let sum = exp_yes + exp_no;
+        let ln_sum = ln_fp(sum);
+        mul_div(b, ln_sum, SCALE)
     }
 }

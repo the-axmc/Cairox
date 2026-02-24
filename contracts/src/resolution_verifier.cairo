@@ -1,147 +1,191 @@
-// Resolution Verifier Contract for Cairox
-// ZK proof verification for fast-finalization path
+// ResolutionVerifier - Verifies market resolutions from oracle
 
-#[cfg(test)]
-mod test {
-    use starknet::ContractAddress;
-    use starknet::cast::cast_felt;
-
-    // Sample reporter address for v0
-    pub fn reporter_address() -> ContractAddress {
-        ContractAddress::from(0x123456789012345678901234567890123456789012345678901234567890123_u128)
-    }
-
-    // Sample oracle address
-    pub fn oracle_address() -> ContractAddress {
-        ContractAddress::from(0x223456789012345678901234567890123456789012345678901234567890123_u128)
-    }
-}
-
-// Market state constants (matching oracle.cairo)
-const PENDING: felt252 = 0;
-const PROPOSED: felt252 = 1;
-const RESOLVED: felt252 = 2;
-const VOIDED: felt252 = 3;
+use core::array::Span;
+use starknet::ContractAddress;
 
 #[starknet::interface]
-pub trait IResolutionVerifier {
-    fn verify_resolution_proof(
-        ref self: ResolutionVerifier,
-        market_id: felt252,
-        outcome: felt252,
-        proof: Span<felt252>
-    ) -> bool;
+trait IOptimisticOracle<TContractState> {
+    fn get_data_hash(self: @TContractState, market_id: felt252) -> felt252;
+}
 
-    fn requires_proof(self: @ResolutionVerifier, market_id: felt252) -> bool;
-
-    fn set_requires_proof(ref self: ResolutionVerifier, market_id: felt252, value: bool);
+#[starknet::interface]
+trait IGroth16VerifierBN254<TContractState> {
+    fn verify_groth16_proof_bn254(
+        self: @TContractState,
+        full_proof_with_hints: Span<felt252>
+    ) -> Option<Span<u256>>;
 }
 
 #[starknet::contract]
 mod ResolutionVerifier {
-    use starknet::SyscallResult;
-    use starknet::{get_caller_address, StorageAddress};
-    use starknet::cast::cast_felt;
-    use openzeppelin::math::u256 as u256_lib;
+    use super::{
+        IOptimisticOracleDispatcher, IOptimisticOracleDispatcherTrait,
+        IGroth16VerifierBN254Dispatcher, IGroth16VerifierBN254DispatcherTrait,
+    };
+    use core::array::Span;
+    use core::array::SpanTrait;
+    use core::traits::TryInto;
+    use core::option::OptionTrait;
+    use starknet::ContractAddress;
+    use core::pedersen::pedersen;
+    use starknet::storage::Map;
+    use starknet::storage::StoragePointerReadAccess;
+    use starknet::storage::StoragePointerWriteAccess;
 
     #[storage]
     struct Storage {
-        // map market_id -> whether proof is required
-        requires_proof_flags: Map<felt252, bool>,
-        // map market_id -> hash of the proof (for tracking)
-        proof_hashes: Map<felt252, felt252>,
-        // map market_id -> fast_path flag
-        fast_path_flags: Map<felt252, bool>,
-        // ZK prover address (optional - for future integrity checks)
-        prover: starknet::ContractAddress,
+        owner: ContractAddress,
+        oracle: ContractAddress,
+        signer_pubkey: felt252,
+        zk_verifier: ContractAddress,
+        verified_outcome: Map<felt252, felt252>,
+        verified_at: Map<felt252, u256>,
+        proof_hash: Map<felt252, felt252>,
+        requires_proof: Map<felt252, u8>,
     }
 
-    #[external]
-    #[init]
+    #[constructor]
     fn constructor(ref self: ContractState) {
-        // Set default prover for v0 (can be updated later)
-        let prover_addr = starknet::ContractAddress::from(0x323456789012345678901234567890123456789012345678901234567890123);
-        self.prover.write(prover_addr);
+        let caller = starknet::get_caller_address();
+        self.owner.write(caller);
+        self.oracle.write(zero_address());
+        self.signer_pubkey.write(0);
+        self.zk_verifier.write(zero_address());
     }
 
-    /// Verify resolution proof for a market
-    /// @param market_id The market ID
-    /// @param outcome The claimed outcome
-    /// @param proof ZK proof (SNARK)
-    /// @return verified True if proof is valid
-    #[external]
+    #[external(v0)]
+    fn set_oracle(ref self: ContractState, oracle: ContractAddress) {
+        let caller = starknet::get_caller_address();
+        let owner = self.owner.read();
+        assert(caller == owner, 'Not owner');
+        self.oracle.write(oracle);
+    }
+
+    #[external(v0)]
+    fn set_signer_pubkey(ref self: ContractState, pubkey: felt252) {
+        let caller = starknet::get_caller_address();
+        let owner = self.owner.read();
+        assert(caller == owner, 'Not owner');
+        self.signer_pubkey.write(pubkey);
+    }
+
+    #[external(v0)]
+    fn get_signer_pubkey(self: @ContractState) -> felt252 {
+        self.signer_pubkey.read()
+    }
+
+    #[external(v0)]
+    fn set_zk_verifier(ref self: ContractState, verifier: ContractAddress) {
+        let caller = starknet::get_caller_address();
+        let owner = self.owner.read();
+        assert(caller == owner, 'Not owner');
+        self.zk_verifier.write(verifier);
+    }
+
+    #[external(v0)]
+    fn get_zk_verifier(self: @ContractState) -> ContractAddress {
+        self.zk_verifier.read()
+    }
+
+    #[external(v0)]
+    fn set_requires_proof(ref self: ContractState, market_id: felt252, value: bool) {
+        let caller = starknet::get_caller_address();
+        let owner = self.owner.read();
+        assert(caller == owner, 'Not owner');
+        let flag: u8 = if value { 1 } else { 0 };
+        self.requires_proof.write(market_id, flag);
+    }
+
+    #[external(v0)]
+    fn requires_proof(self: @ContractState, market_id: felt252) -> bool {
+        self.requires_proof.read(market_id) == 1
+    }
+
+    #[external(v0)]
     fn verify_resolution_proof(
-        ref self: ResolutionVerifier,
+        ref self: ContractState,
         market_id: felt252,
         outcome: felt252,
         proof: Span<felt252>
     ) -> bool {
-        // For v0, ZK proof verification is stubbed (always returns true)
-        // In production, this would contain actual SNARK verification logic
-        // using pedersen and poseidon hash functions
-        
-        // Store the hash of the proof for tracking
-        let proof_hash = Self::hash_proof(proof);
-        self.proof_hashes.write(market_id, proof_hash);
-        
-        // Mark this market as using the fast path
-        self.fast_path_flags.write(market_id, true);
-        
-        // For v0: always return true (stubbed verification)
-        // Proof should be verified off-chain before calling this function
+        let caller = starknet::get_caller_address();
+        let owner = self.owner.read();
+        let oracle = self.oracle.read();
+        assert((caller == owner) || (caller == oracle), 'Not authorized');
+        assert(!is_zero_address(oracle), 'Oracle not set');
+
+        let expected_hash = IOptimisticOracleDispatcher { contract_address: oracle }
+            .get_data_hash(market_id);
+        let zk_verifier = self.zk_verifier.read();
+        if !is_zero_address(zk_verifier) {
+            assert(proof.len() > 0, 'Empty proof');
+            let verifier = IGroth16VerifierBN254Dispatcher { contract_address: zk_verifier };
+            let proof_inputs_opt = verifier.verify_groth16_proof_bn254(proof);
+            assert(proof_inputs_opt.is_some(), 'Invalid ZK proof');
+            let proof_inputs = proof_inputs_opt.unwrap();
+            assert(proof_inputs.len() == 3, 'Invalid public inputs');
+
+            let expected_market: u256 = market_id.into();
+            let expected_outcome: u256 = outcome.into();
+            let expected_data: u256 = expected_hash.into();
+
+            assert(*proof_inputs.at(0) == expected_market, 'Market ID mismatch');
+            assert(*proof_inputs.at(1) == expected_outcome, 'Outcome mismatch');
+            assert(*proof_inputs.at(2) == expected_data, 'Data hash mismatch');
+        } else {
+            assert(proof.len() >= 1, 'Invalid proof');
+            let provided_hash = *proof.at(0);
+            assert(provided_hash == expected_hash, 'Data hash mismatch');
+        }
+
+        let hash = hash_proof(market_id, outcome, proof);
+        self.proof_hash.write(market_id, hash);
+        self.verified_outcome.write(market_id, outcome);
+        let timestamp: u256 = starknet::get_block_timestamp().into();
+        self.verified_at.write(market_id, timestamp);
         true
     }
 
-    /// Check if proof is required for a specific market
-    /// @param market_id The market ID
-    /// @return True if proof is required for this market
-    #[external]
-    fn requires_proof(self: @ResolutionVerifier, market_id: felt252) -> bool {
-        self.requires_proof_flags.read(market_id)
+    #[external(v0)]
+    fn get_proof_hash(self: @ContractState, market_id: felt252) -> felt252 {
+        self.proof_hash.read(market_id)
     }
 
-    /// Set whether a market requires proof
-    /// @param market_id The market ID
-    /// @param value True if proof should be required
-    #[external]
-    fn set_requires_proof(
-        ref self: ResolutionVerifier,
-        market_id: felt252,
-        value: bool
-    ) {
-        let caller = get_caller_address();
-        
-        // Only authorized addresses (or oracle) can set this
-        // For v0, we allow any caller but log the change
-        self.requires_proof_flags.write(market_id, value);
+    #[external(v0)]
+    fn is_fast_path(self: @ContractState, market_id: felt252) -> bool {
+        self.proof_hash.read(market_id) != 0
     }
 
-    /// Check if a market is using the fast path
-    /// @param market_id The market ID
-    /// @return True if using fast path
-    pub fn is_fast_path(self: @ResolutionVerifier, market_id: felt252) -> bool {
-        self.fast_path_flags.read(market_id)
+    #[external(v0)]
+    fn get_verified_outcome(self: @ContractState, market: felt252) -> felt252 {
+        self.verified_outcome.read(market)
     }
 
-    /// Get the proof hash for a market
-    /// @param market_id The market ID
-    /// @return proof_hash The hash of the ZK proof
-    pub fn get_proof_hash(self: @ResolutionVerifier, market_id: felt252) -> felt252 {
-        self.proof_hashes.read(market_id)
+    #[external(v0)]
+    fn is_verified(self: @ContractState, market: felt252) -> bool {
+        self.proof_hash.read(market) != 0
     }
 
-    /// Hash a ZK proof for storage
-    /// @param proof The ZK proof
-    /// @return hash The hash of the proof
-    fn hash_proof(proof: Span<felt252>) -> felt252 {
-        // For v0: simple hash using pedersen
-        // In production, this would be the actual SNARK witness commitment
-        let mut hasher = starknet::pedersen::Pedersen::new();
-        
-        proof.for_each(|p| {
-            hasher.update(p);
-        });
-        
-        hasher.finalize()
+    fn hash_proof(market_id: felt252, outcome: felt252, proof: Span<felt252>) -> felt252 {
+        let mut acc = pedersen(market_id, outcome);
+        let mut i = 0;
+        loop {
+            if i >= proof.len() {
+                break;
+            }
+            let val = *proof.at(i);
+            acc = pedersen(acc, val);
+            i += 1;
+        };
+        acc
+    }
+
+    fn is_zero_address(addr: ContractAddress) -> bool {
+        let felt: felt252 = addr.into();
+        felt == 0
+    }
+
+    fn zero_address() -> ContractAddress {
+        0.try_into().unwrap()
     }
 }

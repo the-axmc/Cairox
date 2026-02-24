@@ -1,12 +1,11 @@
-cairox
 # Cairox - Starknet Ecosystem Prediction Protocol
 
 ## Quick Start
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_USERNAME/cairox.git
-cd cairox
+git clone https://github.com/the-axmc/Cairox.git
+cd Cairox
 
 # Install dependencies
 cd contracts
@@ -25,20 +24,25 @@ make deploy-local
 ## Project Structure
 
 ```
-cairox/
-├── contracts/           # Cairo smart contracts (Scarb workspace)
-│   ├── Cargo.toml       # Scarb workspace manifest
+Cairox/
+├── contracts/           # Cairo smart contracts (Scarb package)
+│   ├── Scarb.toml       # Package manifest
 │   ├── src/             # Contract source code
 │   ├── tests/           # Integration tests
-│   └── Snapshots.json   # Test snapshots
-├── oracle-agent/        # Data oracle agent
+│   └── scripts/         # Deployment/helpers
+├── oracle-agent/        # Data oracle agent (Python)
 │   ├── README.md
-│   ├── package.json     # Node.js dependencies
+│   ├── requirements.txt
 │   └── src/             # Oracle implementation
-├── indexer/             # Indexer service (optional)
-│   └── README.md
+├── indexer/             # Indexer service (Python)
+│   ├── README.md
+│   ├── requirements.txt
+│   └── src/
 ├── specs/               # Market specifications (JSON)
 │   └── markets.json
+├── docs/                # Protocol documentation
+├── zk/                  # ZK tooling and circuits
+├── scripts/             # Repo-level utilities
 ├── .github/workflows/   # CI workflows
 │   └── ci.yml
 ├── Makefile             # Build targets
@@ -50,16 +54,22 @@ cairox/
 The Cairox protocol consists of:
 
 1. **MarketFactory** - Creates and manages prediction markets
-2. **ConditionalTokens** - ERC-1155 style outcome tokens
-3. **Resolver** - Oracle for market resolution using growthepie API
-4. **AMM** - Bonding curve market maker
+2. **Market** - Core market logic (mint, redeem, resolve)
+3. **CollateralVault** - Holds collateral deposits
+4. **OutcomeToken** - ERC-1155 style outcome tokens
+5. **Oracle / OptimisticOracle** - Data commitments and proposals
+6. **ResolutionVerifier** - Verifies multi-user resolution claims
+7. **LMSRMarketMaker / LMSRMulti** - Bonding curve pricing
+8. **Arbitration** - Dispute resolution
+9. **LaunchConfig** - Market creation parameters
+10. **PriceOracle / Stablecoin** - Pricing + collateral primitives
 
 ## Tooling
 
 - **Scarb** - Cairo package manager and build tool
 - **Starknet Foundry (snforge)** - Testing framework
 - **Starknet Devnet** - Local development network
-- **Starknet.js** - Frontend SDK
+- **Python** - Oracle agent and indexer services
 
 ## Development
 

@@ -54,3 +54,13 @@ Generated market_ids (SHA-256 hashes):
   2. Which L2 has highest TVL on March 1st?
      b8d2a1e09876543210fedcba9876543210fedcba9876543210fedcba98
 ```
+
+## e2e_resolution_payout.py
+
+End-to-end flow that creates a market, buys YES, resolves via OptimisticOracle, and redeems winnings.
+
+### Usage
+
+```bash
+python3 scripts/e2e_resolution_payout.py --rpc-url $STARKNET_RPC_URL
+```

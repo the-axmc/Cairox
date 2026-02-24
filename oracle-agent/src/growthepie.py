@@ -18,10 +18,10 @@ class GrowthepieClient:
         Initialize the Growthepie client.
         
         Args:
-            base_url: Base URL for the Growthepie API. Defaults to https://api.growthepie.xyz
+            base_url: Base URL for the Growthepie API. Defaults to https://api.growthepie.com
             timeout: Request timeout in seconds
         """
-        self.base_url = base_url or "https://api.growthepie.xyz"
+        self.base_url = base_url or "https://api.growthepie.com"
         self.timeout = timeout
         self.session = requests.Session()
     

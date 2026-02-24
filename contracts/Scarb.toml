@@ -1,5 +1,3 @@
-# Cairox Contracts - Scarb.toml
-
 [package]
 name = "cairox_contracts"
 version = "0.1.0"

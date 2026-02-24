@@ -1,21 +1,26 @@
-// Outcome Token Tests for Cairox
-// Tests basic ERC20 functionality
+// Outcome Token Tests for Cairox (updated API)
 
 use snforge::test;
 use starknet::ContractAddress;
 use openzeppelin::math::u256 as u256_lib;
 use cairox_contracts::OutcomeToken;
+use core::option::OptionTrait;
+use core::traits::TryInto;
+
+fn owner_address() -> ContractAddress {
+    addr(0x111111111111111111111111111111111111111111111111111111111111111_u128)
+}
 
 fn user_address() -> ContractAddress {
-    ContractAddress::from(0x123456789012345678901234567890123456789012345678901234567890123_u128)
+    addr(0x222222222222222222222222222222222222222222222222222222222222222_u128)
 }
 
-fn another_address() -> ContractAddress {
-    ContractAddress::from(0x223456789012345678901234567890123456789012345678901234567890123_u128)
+fn other_address() -> ContractAddress {
+    addr(0x333333333333333333333333333333333333333333333333333333333333333_u128)
 }
 
-fn vault_address() -> ContractAddress {
-    ContractAddress::from(0x323456789012345678901234567890123456789012345678901234567890123_u128)
+fn addr(value: u128) -> ContractAddress {
+    value.try_into().unwrap()
 }
 
 fn u256_value(amount: u128) -> u256_lib::U256 {
@@ -26,223 +31,88 @@ fn u256_value(amount: u128) -> u256_lib::U256 {
 }
 
 #[test]
-fn test_initialization() {
-    let mut token = OutcomeToken::constructor();
-    
-    token.initialize(
-        name: s'YES Outcome',
-        symbol: s'YES',
-        decimals: 6,
-        vault: vault_address()
-    );
-    
-    assert_eq!(token.name(), s'YES Outcome', 'Name should be YES Outcome');
-    assert_eq!(token.symbol(), s'YES', 'Symbol should be YES');
-    assert_eq!(token.decimals(), 6, 'Decimals should be 6');
+fn test_constructor_and_owner() {
+    let owner = owner_address();
+    let token = OutcomeToken::constructor(name: 'YES', symbol: 'YES', owner: owner.into());
+    let stored_owner = token.get_owner();
+    assert(stored_owner == owner.into(), 'Owner should match constructor');
 }
 
 #[test]
-fn test_mint_by_vault() {
-    let mut token = OutcomeToken::constructor();
-    
-    token.initialize(
-        name: s'YES Outcome',
-        symbol: s'YES',
-        decimals: 6,
-        vault: vault_address()
-    );
-    
-    // Mint tokens as vault
-    token.mint(account: user_address(), amount: u256_value(100));
-    
-    let balance = token.balance_of(account: user_address());
-    assert_eq!(balance.low, 100, 'Balance should be 100');
+fn test_owner_can_mint_and_burn() {
+    let owner = owner_address();
+    let mut token = OutcomeToken::constructor(name: 'YES', symbol: 'YES', owner: owner.into());
+
+    // Mint as owner
+    starknet::set_caller_address(owner);
+    token.mint(to: user_address().into(), amount: u256_value(100));
+    let balance = token.balance_of(account: user_address().into());
+    assert(balance.low == 100, 'Mint should credit balance');
+
+    // Burn as owner
+    token.burn(from: user_address().into(), amount: u256_value(40));
+    let balance_after = token.balance_of(account: user_address().into());
+    assert(balance_after.low == 60, 'Burn should reduce balance');
 }
 
 #[test]
 #[should_revert]
-fn test_cannot_mint_by_non_vault() {
-    let mut token = OutcomeToken::constructor();
-    
-    token.initialize(
-        name: s'YES Outcome',
-        symbol: s'YES',
-        decimals: 6,
-        vault: vault_address()
-    );
-    
-    // Try to mint as non-vault address
-    token.mint(account: user_address(), amount: u256_value(100));
-    // This should revert because only vault can mint
-}
+fn test_non_owner_cannot_mint() {
+    let owner = owner_address();
+    let mut token = OutcomeToken::constructor(name: 'YES', symbol: 'YES', owner: owner.into());
 
-#[test]
-fn test_burn_by_vault() {
-    let mut token = OutcomeToken::constructor();
-    
-    token.initialize(
-        name: s'YES Outcome',
-        symbol: s'YES',
-        decimals: 6,
-        vault: vault_address()
-    );
-    
-    // Mint tokens
-    token.mint(account: user_address(), amount: u256_value(100));
-    
-    // Burn tokens as vault
-    token.burn(account: user_address(), amount: u256_value(50));
-    
-    let balance = token.balance_of(account: user_address());
-    assert_eq!(balance.low, 50, 'Balance should be 50 after burning 50');
+    // Call from non-owner
+    let non_owner = user_address();
+    starknet::set_caller_address(non_owner);
+    token.mint(to: user_address().into(), amount: u256_value(10));
 }
 
 #[test]
 #[should_revert]
-fn test_cannot_burn_by_non_vault() {
-    let mut token = OutcomeToken::constructor();
-    
-    token.initialize(
-        name: s'YES Outcome',
-        symbol: s'YES',
-        decimals: 6,
-        vault: vault_address()
-    );
-    
-    // Mint tokens
-    token.mint(account: user_address(), amount: u256_value(100));
-    
-    // Try to burn as non-vault
-    token.burn(account: user_address(), amount: u256_value(50));
-    // This should revert because only vault can burn
+fn test_non_owner_cannot_burn() {
+    let owner = owner_address();
+    let mut token = OutcomeToken::constructor(name: 'YES', symbol: 'YES', owner: owner.into());
+
+    // Mint as owner
+    starknet::set_caller_address(owner);
+    token.mint(to: user_address().into(), amount: u256_value(10));
+
+    // Burn as non-owner
+    let non_owner = other_address();
+    starknet::set_caller_address(non_owner);
+    token.burn(from: user_address().into(), amount: u256_value(5));
 }
 
 #[test]
-fn test_transfer() {
-    let mut token = OutcomeToken::constructor();
-    
-    token.initialize(
-        name: s'YES Outcome',
-        symbol: s'YES',
-        decimals: 6,
-        vault: vault_address()
-    );
-    
-    // Mint tokens
-    token.mint(account: user_address(), amount: u256_value(100));
-    
-    // Transfer tokens
-    token.transfer(to: another_address(), amount: u256_value(50));
-    
-    let user_balance = token.balance_of(account: user_address());
-    let other_balance = token.balance_of(account: another_address());
-    
-    assert_eq!(user_balance.low, 50, 'User balance should be 50');
-    assert_eq!(other_balance.low, 50, 'Other balance should be 50');
-}
+fn test_transfer_and_transfer_from() {
+    let owner = owner_address();
+    let mut token = OutcomeToken::constructor(name: 'YES', symbol: 'YES', owner: owner.into());
 
-#[test]
-#[should_revert]
-fn test_cannot_transfer_insufficient_balance() {
-    let mut token = OutcomeToken::constructor();
-    
-    token.initialize(
-        name: s'YES Outcome',
-        symbol: s'YES',
-        decimals: 6,
-        vault: vault_address()
-    );
-    
-    // Mint tokens
-    token.mint(account: user_address(), amount: u256_value(100));
-    
-    // Try to transfer more than balance
-    token.transfer(to: another_address(), amount: u256_value(150));
-    // This should revert due to insufficient balance
-}
+    // Mint as owner
+    starknet::set_caller_address(owner);
+    token.mint(to: user_address().into(), amount: u256_value(100));
 
-#[test]
-fn test_total_supply() {
-    let mut token = OutcomeToken::constructor();
-    
-    token.initialize(
-        name: s'YES Outcome',
-        symbol: s'YES',
-        decimals: 6,
-        vault: vault_address()
-    );
-    
-    // Mint tokens
-    token.mint(account: user_address(), amount: u256_value(100));
-    token.mint(account: another_address(), amount: u256_value(50));
-    
-    // Burn some tokens
-    token.burn(account: user_address(), amount: u256_value(20));
-    
-    // Total supply = 100 + 50 - 20 = 130
-    // Note: In practice, you'd need a getter for total supply
-    // This test documents expected behavior
-}
+    // Transfer from user to other
+    let user = user_address();
+    starknet::set_caller_address(user);
+    token.transfer(to: other_address().into(), amount: u256_value(30));
+    let user_balance = token.balance_of(account: user_address().into());
+    let other_balance = token.balance_of(account: other_address().into());
+    assert(user_balance.low == 70, 'User balance should be 70');
+    assert(other_balance.low == 30, 'Other balance should be 30');
 
-#[test]
-fn test_multiple_mints_and_burns() {
-    let mut token = OutcomeToken::constructor();
-    
-    token.initialize(
-        name: s'YES Outcome',
-        symbol: s'YES',
-        decimals: 6,
-        vault: vault_address()
+    // Approve and transfer_from
+    token.approve(spender: owner_address().into(), amount: u256_value(20));
+    let owner = owner_address();
+    starknet::set_caller_address(owner);
+    token.transfer_from(
+        from: user_address().into(),
+        to: other_address().into(),
+        amount: u256_value(20)
     );
-    
-    // Multiple mints
-    token.mint(account: user_address(), amount: u256_value(100));
-    token.mint(account: another_address(), amount: u256_value(200));
-    
-    // Multiple burns
-    token.burn(account: user_address(), amount: u256_value(30));
-    token.burn(account: another_address(), amount: u256_value(50));
-    
-    // Final balances
-    let user_balance = token.balance_of(account: user_address());
-    let other_balance = token.balance_of(account: another_address());
-    
-    assert_eq!(user_balance.low, 70, 'User final balance should be 70');
-    assert_eq!(other_balance.low, 150, 'Other final balance should be 150');
-}
 
-#[test]
-fn test_outcome_token_per_market() {
-    // Test that each market can have its own outcome tokens
-    
-    // Each market would have:
-    // - YES outcome token
-    // - NO outcome token
-    
-    // Test that tokens are independent per market
-    let mut token1 = OutcomeToken::constructor();
-    token1.initialize(
-        name: s'Market 1 YES',
-        symbol: s'M1YES',
-        decimals: 6,
-        vault: vault_address()
-    );
-    
-    let mut token2 = OutcomeToken::constructor();
-    token2.initialize(
-        name: s'Market 2 YES',
-        symbol: s'M2YES',
-        decimals: 6,
-        vault: vault_address()
-    );
-    
-    token1.mint(account: user_address(), amount: u256_value(100));
-    token2.mint(account: user_address(), amount: u256_value(200));
-    
-    // Balances should be independent
-    let balance1 = token1.balance_of(account: user_address());
-    let balance2 = token2.balance_of(account: user_address());
-    
-    assert_eq!(balance1.low, 100, 'Market 1 balance should be 100');
-    assert_eq!(balance2.low, 200, 'Market 2 balance should be 200');
+    let user_balance_after = token.balance_of(account: user_address().into());
+    let other_balance_after = token.balance_of(account: other_address().into());
+    assert(user_balance_after.low == 50, 'User balance should be 50');
+    assert(other_balance_after.low == 50, 'Other balance should be 50');
 }

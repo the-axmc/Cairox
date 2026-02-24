@@ -1,333 +1,224 @@
-#[starknet::interface]
-pub trait IOptimisticOracle {
-    fn propose(
-        ref self: ContractState,
-        market_id: felt252,
-        outcome: felt252,
-        data_hash: felt252,
-        data_uri: felt252,
-        bond: u256_lib::U256
-    );
-    fn dispute(ref self: ContractState, market_id: felt252, bond: u256_lib::U256);
-    fn finalize(ref self: ContractState, market_id: felt252);
-    fn resolve_arbitration(ref self: ContractState, market_id: felt252, outcome: felt252);
-    fn get_market_status(self: @ContractState, market_id: felt252) -> felt252;
-    fn propose_with_proof(
-        ref self: ContractState,
-        market_id: felt252,
-        outcome: felt252,
-        data_hash: felt252,
-        zk_proof: Span<felt252>
-    );
-    fn fast_finalize(ref self: ContractState, market_id: felt252);
-    fn is_disputed(self: @ContractState, market_id: felt252) -> bool;
-}
+// CairoxOracle - Growthepie integration with safety features
 
 #[starknet::contract]
-mod OptimisticOracle {
-    use starknet::SyscallResult;
-    use starknet::{get_caller_address, StorageAddress, get_contract_address};
-    use starknet::cast::cast_felt;
-    use openzeppelin::math::u256 as u256_lib;
-    use super::resolution_verifier::ResolutionVerifier;
+mod CairoxOracle {
+    use starknet::storage::Map;
+    use starknet::storage::StoragePointerReadAccess;
+    use starknet::storage::StoragePointerWriteAccess;
 
-    // Market status constants
-    const PENDING: felt252 = 0;
-    const PROPOSED: felt252 = 1;
-    const RESOLVED: felt252 = 2;
-    const VOIDED: felt252 = 3;
+    const METRIC_DAW: felt252 = 1;
+    const METRIC_TXS: felt252 = 2;
+    const METRIC_CONTRACTS: felt252 = 3;
+    const METRIC_TOKENS: felt252 = 4;
 
-    // Dispute window in seconds (5 minutes for testing)
-    const DISPUTE_WINDOW_SECONDS: u64 = 300;
-
-    // Single centralized reporter address for v0
-    // Using a sample address - in production this should be set properly
-    const REPORTER: felt252 = 0x123456789012345678901234567890123456789012345678901234567890123;
-
-    // Default bond amounts for v0
-    const DEFAULT_MIN_PROPOSER_BOND: u256_lib::U256 = u256_lib::U256 { low: 100, high: 0 };  // 100 USDC
-    const DEFAULT_MIN_DISPUTE_BOND: u256_lib::U256 = u256_lib::U256 { low: 200, high: 0 };   // 200 USDC
+    const STATE_NORMAL: felt252 = 0;
+    const STATE_PAUSED: felt252 = 1;
 
     #[storage]
     struct Storage {
-        // map market_id -> Market struct
-        markets: Map<felt252, Market>,
-        // Config
-        min_proposer_bond: u256_lib::U256,
-        min_dispute_bond: u256_lib::U256,
-        arbiter: starknet::ContractAddress,
-        // Fast-finalize config
-        fast_finalize_enabled: bool,
+        owner: felt252,
+        pending_owner: felt252,
+        circuit_state: felt252,
+        pause_reason: felt252,
+        update_interval: u256,
+        authorized_updaters: Map<felt252, u8>,
+        latest_values: Map<felt252, u256>,
+        last_updated: Map<felt252, u256>,
+        update_count: Map<felt252, u256>,
+        total_updates: u256,
+        failed_updates: u256,
     }
 
-    #[derive(Drop, CairoShape)]
-    struct Market {
-        proposer: starknet::ContractAddress,
-        proposer_bond: u256_lib::U256,
-        outcome: felt252,
-        disputed: bool,
-        dispute_bond: u256_lib::U256,
-        dispute_resolved: bool,
-        data_hash: felt252,
-        data_uri: felt252,
-        proposed_at: u64,
-        resolved_at: u64,
-        status: felt252,
-        // Fast-finalize fields
-        fast_path: bool,
-        proof_hash: felt252,
-    }
-
-    #[external]
-    #[init]
+    #[constructor]
     fn constructor(ref self: ContractState) {
-        self.min_proposer_bond.write(DEFAULT_MIN_PROPOSER_BOND);
-        self.min_dispute_bond.write(DEFAULT_MIN_DISPUTE_BOND);
-        // Set arbiter to a default address for v0 (can be updated later)
-        let arbiter_addr = starknet::ContractAddress::from(0x123456789012345678901234567890123456789012345678901234567890123);
-        self.arbiter.write(arbiter_addr);
-        // Enable fast-finalize for v0 (but proofs are stubbed)
-        self.fast_finalize_enabled.write(true);
+        let caller: felt252 = starknet::get_caller_address().into();
+        self.owner.write(caller);
+        self.pending_owner.write(0);
+        self.circuit_state.write(STATE_NORMAL);
+        self.pause_reason.write(0);
+        self.update_interval.write(u256 { low: 3600, high: 0 });
+        self.authorized_updaters.write(caller, 1);
+        self.total_updates.write(u256 { low: 0, high: 0 });
+        self.failed_updates.write(u256 { low: 0, high: 0 });
     }
 
-    #[external]
-    fn propose(
-        ref self: ContractState,
-        market_id: felt252,
-        outcome: felt252,
-        data_hash: felt252,
-        data_uri: felt252,
-        bond: u256_lib::U256
-    ) {
-        let caller = get_caller_address();
-        
-        // Only allow the authorized reporter to propose
-        let reporter_felt = cast_felt(REPORTER);
-        assert(caller.value == reporter_felt, 'Unauthorized: only reporter can propose');
-        
-        // Verify bond meets minimum requirement
-        let min_bond = self.min_proposer_bond.read();
-        assert(u256_lib::U256_gte(bond, min_bond), 'Bond too low: must be >= min_proposer_bond');
-        
-        let existing_market = self.markets.read(market_id);
-        // If market exists and is not pending, reject
-        assert(existing_market.status == PENDING, 'Market already proposed');
-
-        let market = Market {
-            proposer: caller,
-            proposer_bond: bond,
-            outcome: outcome,
-            disputed: false,
-            dispute_bond: u256_lib::U256 { low: 0, high: 0 },
-            dispute_resolved: false,
-            data_hash: data_hash,
-            data_uri: data_uri,
-            proposed_at: starknet::block_timestamp(),
-            resolved_at: 0,
-            status: PROPOSED,
-        };
-        
-        self.markets.write(market_id, market);
+    #[external(v0)]
+    fn transfer_ownership(ref self: ContractState, new_owner: felt252) {
+        let current = self.owner.read();
+        let caller: felt252 = starknet::get_caller_address().into();
+        assert(caller == current, 'Not owner');
+        self.pending_owner.write(new_owner);
     }
 
-    #[external]
-    fn dispute(ref self: ContractState, market_id: felt252, bond: u256_lib::U256) {
-        let caller = get_caller_address();
-        
-        let market = self.markets.read(market_id);
-        
-        // Market must be in Proposed status
-        assert(market.status == PROPOSED, 'Market is not in Proposed state');
-        
-        // Market must not already be disputed
-        assert(!market.disputed, 'Market is already disputed');
-        
-        // Verify bond meets minimum requirement
-        let min_dispute_bond = self.min_dispute_bond.read();
-        assert(u256_lib::U256_gte(bond, min_dispute_bond), 'Dispute bond too low: must be >= min_dispute_bond');
-        
-        let mut updated_market = market;
-        updated_market.disputed = true;
-        updated_market.dispute_bond = bond;
-        updated_market.proposer_bond = market.proposer_bond;  // Store proposer bond for later
-        
-        self.markets.write(market_id, updated_market);
+    #[external(v0)]
+    fn accept_ownership(ref self: ContractState) {
+        let pending = self.pending_owner.read();
+        let caller: felt252 = starknet::get_caller_address().into();
+        assert(caller == pending, 'Not pending');
+        self.owner.write(pending);
+        self.pending_owner.write(0);
     }
 
-    #[external]
-    fn finalize(ref self: ContractState, market_id: felt252) {
-        let market = self.markets.read(market_id);
-        
-        // Market must be in Proposed status
-        assert(market.status == PROPOSED, 'Market is not in Proposed state');
-        
-        // Market must not be disputed
-        assert(!market.disputed, 'Market is disputed: must go through arbitration');
-        
-        let current_time = starknet::block_timestamp();
-        let time_since_proposal = current_time - market.proposed_at;
-        
-        // Must wait for dispute window to pass
-        assert(time_since_proposal >= DISPUTE_WINDOW_SECONDS, 'Dispute window not passed');
-        
-        let mut updated_market = market;
-        updated_market.status = RESOLVED;
-        updated_market.resolved_at = current_time;
-        
-        self.markets.write(market_id, updated_market);
+    #[external(v0)]
+    fn pause_oracle(ref self: ContractState, reason: felt252) {
+        let current = self.owner.read();
+        let caller: felt252 = starknet::get_caller_address().into();
+        assert(caller == current, 'Not owner');
+        self.circuit_state.write(STATE_PAUSED);
+        self.pause_reason.write(reason);
     }
 
-    #[external]
-    fn resolve_arbitration(ref self: ContractState, market_id: felt252, outcome: felt252) {
-        let caller = get_caller_address();
-        
-        let market = self.markets.read(market_id);
-        
-        // Market must be disputed
-        assert(market.disputed, 'Market is not disputed');
-        
-        // Only the arbiter can resolve
-        let arbiter = self.arbiter.read();
-        assert(caller.value == arbiter.value, 'Unauthorized: only arbiter can resolve');
-        
-        let mut updated_market = market;
-        updated_market.outcome = outcome;
-        updated_market.disputed = false;
-        updated_market.dispute_resolved = true;
-        updated_market.status = RESOLVED;
-        updated_market.resolved_at = starknet::block_timestamp();
-        
-        self.markets.write(market_id, updated_market);
+    #[external(v0)]
+    fn resume(ref self: ContractState) {
+        let current = self.owner.read();
+        let caller: felt252 = starknet::get_caller_address().into();
+        assert(caller == current, 'Not owner');
+        self.circuit_state.write(STATE_NORMAL);
+        self.pause_reason.write(0);
     }
 
-    #[external]
-    fn propose_with_proof(
-        ref self: ContractState,
-        market_id: felt252,
-        outcome: felt252,
-        data_hash: felt252,
-        zk_proof: Span<felt252>
-    ) {
-        let caller = get_caller_address();
-        
-        // Only allow the authorized reporter to propose
-        let reporter_felt = cast_felt(REPORTER);
-        assert(caller.value == reporter_felt, 'Unauthorized: only reporter can propose');
-        
-        // Verify bond meets minimum requirement
-        let min_bond = self.min_proposer_bond.read();
-        let proposer_bond = min_bond;  // Use minimum for fast-finalize (no bond needed for proof)
-        
-        let existing_market = self.markets.read(market_id);
-        // If market exists and is not pending, reject
-        assert(existing_market.status == PENDING, 'Market already proposed');
-        
-        // Verify proof is not too large (basic validation - in production, verify SNARK)
-        let proof_len = zk_proof.len();
-        assert(proof_len > 0 && proof_len <= 1000, 'Invalid ZK proof size');
-        
-        // Compute proof hash for storage
-        let proof_hash = Self::compute_proof_hash(zk_proof);
-        
-        // Verify ZK proof (stubbed for v0 - always succeeds)
-        // In production, this would call the ResolutionVerifier contract
-        let verified = Self::verify_zk_proof(market_id, outcome, zk_proof);
-        assert(verified, 'Invalid ZK proof');
-        
-        let market = Market {
-            proposer: caller,
-            proposer_bond: proposer_bond,
-            outcome: outcome,
-            disputed: false,
-            dispute_bond: u256_lib::U256 { low: 0, high: 0 },
-            dispute_resolved: false,
-            data_hash: data_hash,
-            data_uri: data_uri,
-            proposed_at: starknet::block_timestamp(),
-            resolved_at: 0,
-            status: PROPOSED,
-            fast_path: true,  // Mark as fast-path market
-            proof_hash: proof_hash,
-        };
-        
-        self.markets.write(market_id, market);
+    #[external(v0)]
+    fn set_update_interval(ref self: ContractState, interval: u256) {
+        let current = self.owner.read();
+        let caller: felt252 = starknet::get_caller_address().into();
+        assert(caller == current, 'Not owner');
+        self.update_interval.write(interval);
     }
 
-    /// Fast-finalize a market using ZK proof (skips dispute window)
-    /// Only works if:
-    /// 1. Fast-finalize is enabled
-    /// 2. Market was proposed with proof (fast_path = true)
-    /// 3. ZK proof was verified during propose
-    #[external]
-    fn fast_finalize(ref self: ContractState, market_id: felt252) {
-        let market = self.markets.read(market_id);
-        
-        // Check fast-finalize is enabled
-        let fast_enabled = self.fast_finalize_enabled.read();
-        assert(fast_enabled, 'Fast-finalize not enabled');
-        
-        // Market must be in Proposed status
-        assert(market.status == PROPOSED, 'Market is not in Proposed state');
-        
-        // Market must be using fast-path (was proposed with proof)
-        assert(market.fast_path, 'Market is not using fast path: call propose_with_proof first');
-        
-        // Verify proof was recorded during propose
-        assert(market.proof_hash != 0, 'Proof hash not recorded');
-        
-        // No dispute window check needed - fast-finalize skips it
-        let current_time = starknet::block_timestamp();
-        
-        let mut updated_market = market;
-        updated_market.status = RESOLVED;
-        updated_market.resolved_at = current_time;
-        
-        self.markets.write(market_id, updated_market);
+    #[external(v0)]
+    fn add_updater(ref self: ContractState, updater: felt252) {
+        let current = self.owner.read();
+        let caller: felt252 = starknet::get_caller_address().into();
+        assert(caller == current, 'Not owner');
+        self.authorized_updaters.write(updater, 1);
     }
 
-    #[external]
-    fn get_market_status(self: @ContractState, market_id: felt252) -> felt252 {
-        let market = self.markets.read(market_id);
-        market.status
+    #[external(v0)]
+    fn remove_updater(ref self: ContractState, updater: felt252) {
+        let current = self.owner.read();
+        let caller: felt252 = starknet::get_caller_address().into();
+        assert(caller == current, 'Not owner');
+        self.authorized_updaters.write(updater, 0);
     }
 
-    #[external]
-    fn is_disputed(self: @ContractState, market_id: felt252) -> bool {
-        let market = self.markets.read(market_id);
-        market.disputed
+    #[external(v0)]
+    fn update_daw(ref self: ContractState, value: u256) {
+        assert(self.circuit_state.read() == STATE_NORMAL, 'Paused');
+        let caller: felt252 = starknet::get_caller_address().into();
+        let owner = self.owner.read();
+        let authorized = self.authorized_updaters.read(caller);
+        assert((caller == owner) || (authorized == 1), 'Not authorized');
+        
+        self.latest_values.write(METRIC_DAW, value);
+        let timestamp: u256 = starknet::get_block_timestamp().into();
+        self.last_updated.write(METRIC_DAW, timestamp);
+        
+        let count = self.update_count.read(METRIC_DAW);
+        self.update_count.write(METRIC_DAW, count + u256 { low: 1, high: 0 });
+        
+        let total = self.total_updates.read();
+        self.total_updates.write(total + u256 { low: 1, high: 0 });
     }
 
-    /// Verify ZK proof (stubbed for v0)
-    /// @param market_id The market ID
-    /// @param outcome The claimed outcome
-    /// @param proof The ZK proof
-    /// @return verified True if proof is valid
-    fn verify_zk_proof(
-        market_id: felt252,
-        outcome: felt252,
-        proof: Span<felt252>
-    ) -> bool {
-        // For v0: ZK proof verification is stubbed (always returns true)
-        // The actual verification logic would be in the ResolutionVerifier contract
-        // 
-        // In production, this would:
-        // 1. Hash the proof using pedersen
-        // 2. Call ResolutionVerifier::verify_resolution_proof()
-        // 3. Or implement actual SNARK verification using pedersen, poseidon, etc.
+    #[external(v0)]
+    fn update_txs(ref self: ContractState, value: u256) {
+        assert(self.circuit_state.read() == STATE_NORMAL, 'Paused');
+        let caller: felt252 = starknet::get_caller_address().into();
+        let owner = self.owner.read();
+        let authorized = self.authorized_updaters.read(caller);
+        assert((caller == owner) || (authorized == 1), 'Not authorized');
         
-        true  // Stubbed - always verify
+        self.latest_values.write(METRIC_TXS, value);
+        let timestamp: u256 = starknet::get_block_timestamp().into();
+        self.last_updated.write(METRIC_TXS, timestamp);
+        
+        let count = self.update_count.read(METRIC_TXS);
+        self.update_count.write(METRIC_TXS, count + u256 { low: 1, high: 0 });
+        
+        let total = self.total_updates.read();
+        self.total_updates.write(total + u256 { low: 1, high: 0 });
     }
 
-    /// Compute hash of a ZK proof for storage
-    /// @param proof The ZK proof
-    /// @return hash The hash of the proof
-    fn compute_proof_hash(proof: Span<felt252>) -> felt252 {
-        let mut hasher = starknet::pedersen::Pedersen::new();
+    #[external(v0)]
+    fn update_contracts(ref self: ContractState, value: u256) {
+        assert(self.circuit_state.read() == STATE_NORMAL, 'Paused');
+        let caller: felt252 = starknet::get_caller_address().into();
+        let owner = self.owner.read();
+        let authorized = self.authorized_updaters.read(caller);
+        assert((caller == owner) || (authorized == 1), 'Not authorized');
         
-        proof.for_each(|p| {
-            hasher.update(p);
-        });
+        self.latest_values.write(METRIC_CONTRACTS, value);
+        let timestamp: u256 = starknet::get_block_timestamp().into();
+        self.last_updated.write(METRIC_CONTRACTS, timestamp);
         
-        hasher.finalize()
+        let count = self.update_count.read(METRIC_CONTRACTS);
+        self.update_count.write(METRIC_CONTRACTS, count + u256 { low: 1, high: 0 });
+        
+        let total = self.total_updates.read();
+        self.total_updates.write(total + u256 { low: 1, high: 0 });
+    }
+
+    #[external(v0)]
+    fn update_tokens(ref self: ContractState, value: u256) {
+        assert(self.circuit_state.read() == STATE_NORMAL, 'Paused');
+        let caller: felt252 = starknet::get_caller_address().into();
+        let owner = self.owner.read();
+        let authorized = self.authorized_updaters.read(caller);
+        assert((caller == owner) || (authorized == 1), 'Not authorized');
+        
+        self.latest_values.write(METRIC_TOKENS, value);
+        let timestamp: u256 = starknet::get_block_timestamp().into();
+        self.last_updated.write(METRIC_TOKENS, timestamp);
+        
+        let count = self.update_count.read(METRIC_TOKENS);
+        self.update_count.write(METRIC_TOKENS, count + u256 { low: 1, high: 0 });
+        
+        let total = self.total_updates.read();
+        self.total_updates.write(total + u256 { low: 1, high: 0 });
+    }
+
+    #[external(v0)]
+    fn record_failure(ref self: ContractState) {
+        let caller: felt252 = starknet::get_caller_address().into();
+        let owner = self.owner.read();
+        let authorized = self.authorized_updaters.read(caller);
+        assert((caller == owner) || (authorized == 1), 'Not authorized');
+        let failed = self.failed_updates.read();
+        self.failed_updates.write(failed + u256 { low: 1, high: 0 });
+    }
+
+    #[external(v0)]
+    fn get_circuit_state(self: @ContractState) -> felt252 {
+        self.circuit_state.read()
+    }
+
+    #[external(v0)]
+    fn get_total_updates(self: @ContractState) -> u256 {
+        self.total_updates.read()
+    }
+
+    #[external(v0)]
+    fn get_failed_updates(self: @ContractState) -> u256 {
+        self.failed_updates.read()
+    }
+
+    #[external(v0)]
+    fn get_latest_value(self: @ContractState, metric_id: felt252) -> u256 {
+        self.latest_values.read(metric_id)
+    }
+
+    #[external(v0)]
+    fn get_last_updated(self: @ContractState, metric_id: felt252) -> u256 {
+        self.last_updated.read(metric_id)
+    }
+
+    #[external(v0)]
+    fn get_daw(self: @ContractState) -> u256 {
+        self.latest_values.read(METRIC_DAW)
+    }
+
+    #[external(v0)]
+    fn get_transaction_count(self: @ContractState) -> u256 {
+        self.latest_values.read(METRIC_TXS)
     }
 }

@@ -3,8 +3,8 @@
 E2E Dispute Flow Script for Cairox
 
 This script demonstrates the complete dispute workflow:
-1. Propose market with bond (e.g., 100 USDC)
-2. Dispute the proposal (bond = 200 USDC)
+1. Propose market with bond (e.g., 100 stablecoin)
+2. Dispute the proposal (bond = 200 stablecoin)
 3. Try to finalize - should fail (disputed)
 4. Arbitration resolves
 5. Verify bond transfers and outcome
@@ -12,7 +12,7 @@ This script demonstrates the complete dispute workflow:
 Requirements:
 - starknet-devnet running at http://127.0.0.1:5050
 - Cairox contracts deployed
-- USDC token deployed
+- Stablecoin token deployed
 
 Usage:
     python e2e_dispute_flow.py [--rpc-url URL] [--account ACCOUNT] [--key KEY]
@@ -41,9 +41,9 @@ DEFAULT_RPC_URL = "http://127.0.0.1:5050"
 DEFAULT_ACCOUNT = "0x123456789012345678901234567890123456789012345678901234567890123"
 DEFAULT_PRIVATE_KEY = "0x111111111111111111111111111111111111111111111111111111111111111"
 
-# Bond amounts in wei (assuming 6 decimal places for USDC)
-proposer_bond_amount = int(100 * 1e6)  # 100 USDC
-dispute_bond_amount = int(200 * 1e6)   # 200 USDC
+# Bond amounts in wei (assuming 6 decimal places for the stablecoin)
+proposer_bond_amount = int(100 * 1e6)  # 100 stablecoin
+dispute_bond_amount = int(200 * 1e6)   # 200 stablecoin
 
 # Market ID for testing
 MARKET_ID = "test_market_1"
@@ -53,7 +53,8 @@ DATA_URI = "ipfs://Qmtest"
 
 # Contract addresses (will be populated after deployment)
 ORACLE_ADDRESS = None
-USDC_ADDRESS = None
+STABLECOIN_ADDRESS = None
+USDC_ADDRESS = None  # legacy
 ACCOUNT_ADDRESS = None
 
 
@@ -121,7 +122,7 @@ async def propose_market(
         outcome: The proposed outcome
         data_hash: Hash of the market data
         data_uri: URI to the market data
-        bond_amount: Amount of USDC to bond (in wei)
+        bond_amount: Amount of stablecoin to bond (in wei)
         reporter_address: The authorized reporter address
     
     Returns:
@@ -129,20 +130,36 @@ async def propose_market(
     """
     print(f"\n=== Proposing market: {market_id} ===")
     print(f"  Outcome: {outcome}")
-    print(f"  Bond: {bond_amount / 1e6:.2f} USDC")
+    print(f"  Bond: {bond_amount / 1e6:.2f} Stablecoin")
     
     # Set caller to reporter address (only reporter can propose)
     # Note: In actual implementation, this would be done through the Oracle contract's access control
     
     # Convert strings to felt252 (Cairo format)
     market_id_felt = int.from_bytes(market_id.encode(), 'big')
-    outcome_felt = int.from_bytes(outcome.encode(), 'big')
+    if outcome.upper() == "YES":
+        outcome_felt = 1
+    elif outcome.upper() == "NO":
+        outcome_felt = 0
+    else:
+        outcome_felt = int.from_bytes(outcome.encode(), 'big')
     data_hash_felt = int(data_hash, 16)
     data_uri_felt = int.from_bytes(data_uri.encode(), 'big')
     
     # Encode bond as u256
     bond_low = bond_amount & ((1 << 128) - 1)
     bond_high = bond_amount >> 128
+
+    # Ensure market is registered (owner/factory only)
+    try:
+        reg_tx = await oracle.functions["register_market"].invoke(
+            market_id=market_id_felt,
+            max_fee=int(1e16)
+        )
+        await account.client.wait_for_tx(reg_tx.transaction_hash)
+    except Exception:
+        # Likely already registered or not authorized
+        pass
     
     # Call oracle.propose()
     call = Call(
@@ -166,7 +183,7 @@ async def propose_market(
     
     # Verify market status
     status = await oracle.functions["get_market_status"].call(market_id_felt)
-    print(f"  Market status: {status}')  # 1 = PROPOSED
+    print(f"  Market status: {status}")  # 1 = PROPOSED
     
     return result
 
@@ -184,13 +201,13 @@ async def dispute_market(
         account: The account making the dispute
         oracle: The OptimisticOracle contract
         market_id: The market ID to dispute
-        bond_amount: Amount of USDC to dispute with (in wei)
+        bond_amount: Amount of stablecoin to dispute with (in wei)
     
     Returns:
         Transaction result
     """
     print(f"\n=== Disputing market: {market_id} ===")
-    print(f"  Dispute Bond: {bond_amount / 1e6:.2f} USDC")
+    print(f"  Dispute Bond: {bond_amount / 1e6:.2f} Stablecoin")
     
     # Convert market_id to felt252
     market_id_felt = int.from_bytes(market_id.encode(), 'big')
@@ -328,7 +345,7 @@ async def resolve_arbitration(
 async def verify_bond_transfers(
     account: Account,
     oracle: Contract,
-    usdc: Contract,
+    stablecoin: Contract,
     market_id: str,
     proposer_address: int,
     disputor_address: int
@@ -339,7 +356,7 @@ async def verify_bond_transfers(
     Args:
         account: The account to verify balances with
         oracle: The OptimisticOracle contract
-        usdc: The USDC token contract
+        stablecoin: The stablecoin token contract
         market_id: The market ID
         proposer_address: The proposer's address
         disputor_address: The disputor's address
@@ -351,24 +368,24 @@ async def verify_bond_transfers(
     
     market_id_felt = int.from_bytes(market_id.encode(), 'big')
     
-    # Get USDC decimals
-    decimals = await usdc.functions["decimals"].call()
-    print(f"  USDC decimals: {decimals}")
+    # Get stablecoin decimals
+    decimals = await stablecoin.functions["decimals"].call()
+    print(f"  Stablecoin decimals: {decimals}")
     
     # Get proposer balance
-    proposer_balance = await usdc.functions["balance_of"].call(proposer_address)
+    proposer_balance = await stablecoin.functions["balance_of"].call(proposer_address)
     proposer_balance_wei = proposer_balance.low + (proposer_balance.high << 128)
-    print(f"  Proposer balance: {proposer_balance_wei / 1e6:.2f} USDC")
+    print(f"  Proposer balance: {proposer_balance_wei / 1e6:.2f} Stablecoin")
     
     # Get disputor balance
-    disputor_balance = await usdc.functions["balance_of"].call(disputor_address)
+    disputor_balance = await stablecoin.functions["balance_of"].call(disputor_address)
     disputor_balance_wei = disputor_balance.low + (disputor_balance.high << 128)
-    print(f"  Disputor balance: {disputor_balance_wei / 1e6:.2f} USDC")
+    print(f"  Disputor balance: {disputor_balance_wei / 1e6:.2f} Stablecoin")
     
     # Verifier balance
-    verifier_balance = await usdc.functions["balance_of"].call(account.address)
+    verifier_balance = await stablecoin.functions["balance_of"].call(account.address)
     verifier_balance_wei = verifier_balance.low + (verifier_balance.high << 128)
-    print(f"  Verifier balance: {verifier_balance_wei / 1e6:.2f} USDC")
+    print(f"  Verifier balance: {verifier_balance_wei / 1e6:.2f} Stablecoin")
     
     return {
         "proposer_balance": proposer_balance_wei,
@@ -447,9 +464,9 @@ async def main(rpc_url: str = DEFAULT_RPC_URL):
             "contracts/artifacts/oracle.json",
             client
         )
-        usdc = await get_contract(
-            USDC_ADDRESS or "0xcontract_usdc",
-            "contracts/artifacts/usdc.json",
+        stablecoin = await get_contract(
+            STABLECOIN_ADDRESS or USDC_ADDRESS or "0xcontract_stablecoin",
+            "contracts/artifacts/stablecoin.json",
             client
         )
         arbitration = await get_contract(
@@ -535,15 +552,15 @@ async def main(rpc_url: str = DEFAULT_RPC_URL):
         balances = await verify_bond_transfers(
             account=account,
             oracle=oracle,
-            usdc=usdc,
+            stablecoin=stablecoin,
             market_id=MARKET_ID,
             proposer_address=proposer_address,
             disputor_address=disputor_address
         )
         
         print("\n=== E2E Test Summary ===")
-        print(f"Proposer received bonds: {balances['proposer_balance'] / 1e6:.2f} USDC")
-        print(f"Disputor balance: {balances['disputor_balance'] / 1e6:.2f} USDC")
+        print(f"Proposer received bonds: {balances['proposer_balance'] / 1e6:.2f} Stablecoin")
+        print(f"Disputor balance: {balances['disputor_balance'] / 1e6:.2f} Stablecoin")
         
     except Exception as e:
         print(f"Verification failed: {e}")

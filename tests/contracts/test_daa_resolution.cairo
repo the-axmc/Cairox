@@ -8,23 +8,32 @@ use starknet::cast::cast_felt;
 use openzeppelin::math::u256 as u256_lib;
 use cairox_contracts::OptimisticOracle;
 use cairox_contracts::ResolutionVerifier;
+use cairox_contracts::dummy_oracle::{IDummyOracleDispatcher, IDummyOracleDispatcherTrait};
+use core::array::Array;
+use core::array::ArrayTrait;
+use core::option::OptionTrait;
+use core::traits::TryInto;
 
 // ==================== Helper Functions ====================
 
 fn reporter_address() -> ContractAddress {
-    ContractAddress::from(0x123456789012345678901234567890123456789012345678901234567890123_u128)
+    addr(0x123456789012345678901234567890123456789012345678901234567890123_u128)
 }
 
 fn oracle_address() -> ContractAddress {
-    ContractAddress::from(0x223456789012345678901234567890123456789012345678901234567890123_u128)
+    addr(0x223456789012345678901234567890123456789012345678901234567890123_u128)
 }
 
 fn arbiter_address() -> ContractAddress {
-    ContractAddress::from(0x323456789012345678901234567890123456789012345678901234567890123_u128)
+    addr(0x323456789012345678901234567890123456789012345678901234567890123_u128)
 }
 
 fn protocol_address() -> ContractAddress {
-    ContractAddress::from(0x999999999999999999999999999999999999999999999999999999999999999_u128)
+    addr(0x999999999999999999999999999999999999999999999999999999999999999_u128)
+}
+
+fn addr(value: u128) -> ContractAddress {
+    value.try_into().unwrap()
 }
 
 fn u256_value(amount: u128) -> u256_lib::U256 {
@@ -44,25 +53,25 @@ fn txcount_threshold() -> u128 {
 }
 
 fn fees_threshold() -> u128 {
-    1000000000000u128  // 1e12 fees (1000 USDC with 6 decimals)
+    1000000000000u128  // 1e12 fees (1000 stablecoin with 6 decimals)
 }
 
 // Market ID helpers
 fn daa_market_id() -> felt252 {
-    s'daa_test_market'
+    'daa_test_market'
 }
 
 fn txcount_market_id() -> felt252 {
-    s'txcount_test_market'
+    'txcount_test_market'
 }
 
 fn fees_market_id() -> felt252 {
-    s'fees_test_market'
+    'fees_test_market'
 }
 
 // Resolution outcome constants
-const OUTCOME_YES: felt252 = 0;
-const OUTCOME_NO: felt252 = 1;
+const OUTCOME_YES: felt252 = 1;
+const OUTCOME_NO: felt252 = 0;
 
 // Market status constants
 const PENDING: felt252 = 0;
@@ -75,13 +84,13 @@ const RESOLVED: felt252 = 2;
 func test_daa_above_threshold_resolves_yes() {
     // Test that when DAA >= threshold, market resolves to YES
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: addr(0_u128));
     let mut verifier = ResolutionVerifier::constructor();
     
     let market_id = daa_market_id();
     let outcome = OUTCOME_YES;
-    let data_hash = s'0x123456789012345678901234567890123456789012345678901234567890123';
-    let data_uri = s'ipfs://daa-data';
+    let data_hash = 0x123456789012345678901234567890123456789012345678901234567890123;
+    let data_uri = 'ipfs://daa-data';
     let proposer_bond = u256_value(100);
     
     // Set threshold in verifier (in production, this would be configured)
@@ -89,6 +98,7 @@ func test_daa_above_threshold_resolves_yes() {
     
     // 1. Propose DAA market with threshold check
     // The oracle's resolve_arbitration should check DAA data
+    oracle.register_market(market_id: market_id);
     oracle.propose(
         market_id: market_id,
         outcome: outcome,
@@ -108,7 +118,9 @@ func test_daa_above_threshold_resolves_yes() {
     // - Return YES if true, NO if false
     
     // Simulate arbiter resolution
-    starknet::set_caller_address(starknet::CallerAddress { value: arbiter_address().value });
+    oracle.set_arbiter(arbiter_address());
+
+    starknet::set_caller_address(arbiter_address());
     
     oracle.resolve_arbitration(
         market_id: market_id,
@@ -129,15 +141,16 @@ func test_daa_above_threshold_resolves_yes() {
 func test_daa_below_threshold_resolves_no() {
     // Test that when DAA < threshold, market resolves to NO
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: addr(0_u128));
     
     let market_id = daa_market_id();
-    let outcome = OUTCOME_NO;  // NO = 1
-    let data_hash = s'0x987654321098765432109876543210987654321098765432109876543210987';
-    let data_uri = s'ipfs://daa-data-low';
+    let outcome = OUTCOME_NO;  // NO = 0
+    let data_hash = 0x987654321098765432109876543210987654321098765432109876543210987;
+    let data_uri = 'ipfs://daa-data-low';
     let proposer_bond = u256_value(100);
     
     // Propose DAA market with low DAA value
+    oracle.register_market(market_id: market_id);
     oracle.propose(
         market_id: market_id,
         outcome: outcome,
@@ -151,7 +164,9 @@ func test_daa_below_threshold_resolves_no() {
     assert(status == PROPOSED, 'Market should be in Proposed state');
     
     // Arbiter resolves with NO outcome
-    starknet::set_caller_address(starknet::CallerAddress { value: arbiter_address().value });
+    oracle.set_arbiter(arbiter_address());
+
+    starknet::set_caller_address(arbiter_address());
     
     oracle.resolve_arbitration(
         market_id: market_id,
@@ -172,7 +187,17 @@ func test_daa_below_threshold_resolves_no() {
 func test_daa_resolution_with_data_verification() {
     // Test the complete DAA resolution flow with data verification
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: addr(0_u128));
+    let mut calldata: Array<felt252> = ArrayTrait::new();
+    let oracle_addr = starknet::deploy_syscall(
+        'dummy_oracle',
+        calldata.span(),
+        0,
+        false
+    )
+    .unwrap()
+    .assert();
+    let oracle = IDummyOracleDispatcher { contract_address: oracle_addr };
     let mut verifier = ResolutionVerifier::constructor();
     
     let market_id = daa_market_id();
@@ -180,14 +205,17 @@ func test_daa_resolution_with_data_verification() {
     let outcome = OUTCOME_YES;
     
     // Store DAA data hash (in production, this would be the hash of DAA data)
-    let data_hash = s'0x111111111111111111111111111111111111111111111111111111111111111';
+    let data_hash = 0x111111111111111111111111111111111111111111111111111111111111111;
+    oracle.set_data_hash(market_id, data_hash);
+    verifier.set_oracle(oracle_addr);
     
     // Propose the market
+    oracle.register_market(market_id: market_id);
     oracle.propose(
         market_id: market_id,
         outcome: outcome,
         data_hash: data_hash,
-        data_uri: s'ipfs://daa-verification',
+        data_uri: 'ipfs://daa-verification',
         bond: u256_value(100)
     );
     
@@ -196,18 +224,22 @@ func test_daa_resolution_with_data_verification() {
     assert(status == PROPOSED, 'Market should be in Proposed state');
     
     // Verify DAA data using verifier
-    let daa_data = [daa_value as felt252];
+    let mut daa_data: Array<felt252> = ArrayTrait::new();
+    daa_data.append(data_hash);
+    daa_data.append(daa_value as felt252);
     let verified = ResolutionVerifier::verify_resolution_proof(
         ref contract: verifier,
         market_id: market_id,
         outcome: outcome,
-        proof: starknet::SpanTrait::new(daa_data)
+        proof: daa_data.span()
     );
     
     assert(verified, 'DAA data should be verified');
     
     // Arbiter resolves based on verified DAA
-    starknet::set_caller_address(starknet::CallerAddress { value: arbiter_address().value });
+    oracle.set_arbiter(arbiter_address());
+
+    starknet::set_caller_address(arbiter_address());
     
     oracle.resolve_arbitration(
         market_id: market_id,
@@ -225,18 +257,19 @@ func test_daa_resolution_with_data_verification() {
 func test_txcount_resolution() {
     // Test that when txcount >= threshold, market resolves to YES
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: addr(0_u128));
     
     let market_id = txcount_market_id();
     let txcount_value = txcount_threshold() + 100;  // txcount is above threshold
     let outcome = OUTCOME_YES;
     
     // Propose txcount market
+    oracle.register_market(market_id: market_id);
     oracle.propose(
         market_id: market_id,
         outcome: outcome,
-        data_hash: s'0x222222222222222222222222222222222222222222222222222222222222222',
-        data_uri: s'ipfs://txcount-data',
+        data_hash: 0x222222222222222222222222222222222222222222222222222222222222222,
+        data_uri: 'ipfs://txcount-data',
         bond: u256_value(100)
     );
     
@@ -255,7 +288,9 @@ func test_txcount_resolution() {
     assert(verified, 'TXCount should be verified');
     
     // Arbiter resolves with YES (txcount >= threshold)
-    starknet::set_caller_address(starknet::CallerAddress { value: arbiter_address().value });
+    oracle.set_arbiter(arbiter_address());
+
+    starknet::set_caller_address(arbiter_address());
     
     oracle.resolve_arbitration(
         market_id: market_id,
@@ -273,18 +308,19 @@ func test_txcount_resolution() {
 func test_txcount_below_threshold_resolves_no() {
     // Test that when txcount < threshold, market resolves to NO
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: addr(0_u128));
     
     let market_id = txcount_market_id();
     let txcount_value = txcount_threshold() - 100;  // txcount is below threshold
     let outcome = OUTCOME_NO;
     
     // Propose txcount market
+    oracle.register_market(market_id: market_id);
     oracle.propose(
         market_id: market_id,
         outcome: outcome,
-        data_hash: s'0x333333333333333333333333333333333333333333333333333333333333333',
-        data_uri: s'ipfs://txcount-data-low',
+        data_hash: 0x333333333333333333333333333333333333333333333333333333333333333,
+        data_uri: 'ipfs://txcount-data-low',
         bond: u256_value(100)
     );
     
@@ -303,7 +339,9 @@ func test_txcount_below_threshold_resolves_no() {
     assert(verified, 'TXCount should be verified');
     
     // Arbiter resolves with NO (txcount < threshold)
-    starknet::set_caller_address(starknet::CallerAddress { value: arbiter_address().value });
+    oracle.set_arbiter(arbiter_address());
+
+    starknet::set_caller_address(arbiter_address());
     
     oracle.resolve_arbitration(
         market_id: market_id,
@@ -321,18 +359,19 @@ func test_txcount_below_threshold_resolves_no() {
 func test_fees_resolution() {
     // Test that when fees >= threshold, market resolves to YES
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: addr(0_u128));
     
     let market_id = fees_market_id();
     let fees_value = fees_threshold() + 1_000_000_000_000u128;  // fees above threshold
     let outcome = OUTCOME_YES;
     
     // Propose fees market
+    oracle.register_market(market_id: market_id);
     oracle.propose(
         market_id: market_id,
         outcome: outcome,
-        data_hash: s'0x444444444444444444444444444444444444444444444444444444444444444',
-        data_uri: s'ipfs://fees-data',
+        data_hash: 0x444444444444444444444444444444444444444444444444444444444444444,
+        data_uri: 'ipfs://fees-data',
         bond: u256_value(100)
     );
     
@@ -351,7 +390,9 @@ func test_fees_resolution() {
     assert(verified, 'Fees should be verified');
     
     // Arbiter resolves with YES (fees >= threshold)
-    starknet::set_caller_address(starknet::CallerAddress { value: arbiter_address().value });
+    oracle.set_arbiter(arbiter_address());
+
+    starknet::set_caller_address(arbiter_address());
     
     oracle.resolve_arbitration(
         market_id: market_id,
@@ -369,18 +410,19 @@ func test_fees_resolution() {
 func test_fees_below_threshold_resolves_no() {
     // Test that when fees < threshold, market resolves to NO
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: addr(0_u128));
     
     let market_id = fees_market_id();
     let fees_value = fees_threshold() - 1_000_000_000_000u128;  // fees below threshold
     let outcome = OUTCOME_NO;
     
     // Propose fees market
+    oracle.register_market(market_id: market_id);
     oracle.propose(
         market_id: market_id,
         outcome: outcome,
-        data_hash: s'0x555555555555555555555555555555555555555555555555555555555555555',
-        data_uri: s'ipfs://fees-data-low',
+        data_hash: 0x555555555555555555555555555555555555555555555555555555555555555,
+        data_uri: 'ipfs://fees-data-low',
         bond: u256_value(100)
     );
     
@@ -399,7 +441,9 @@ func test_fees_below_threshold_resolves_no() {
     assert(verified, 'Fees should be verified');
     
     // Arbiter resolves with NO (fees < threshold)
-    starknet::set_caller_address(starknet::CallerAddress { value: arbiter_address().value });
+    oracle.set_arbiter(arbiter_address());
+
+    starknet::set_caller_address(arbiter_address());
     
     oracle.resolve_arbitration(
         market_id: market_id,
@@ -417,7 +461,7 @@ func test_fees_below_threshold_resolves_no() {
 func test_daa_verify_function() {
     // Test the DAA verification function
     
-    let mut oracle = OptimisticOracle::constructor();
+    let mut oracle = OptimisticOracle::constructor(bond_token: addr(0_u128));
     
     let market_id = daa_market_id();
     let daa_above = daa_threshold() * 2;
@@ -456,7 +500,7 @@ func test_threshold_constants() {
     // TXCount threshold should be 1000
     assert(txcount_threshold() == 1000, 'TXCount threshold should be 1000');
     
-    // Fees threshold should be 1e12 (1000 USDC with 6 decimals)
+    // Fees threshold should be 1e12 (1000 stablecoin with 6 decimals)
     assert(fees_threshold() == 1_000_000_000_000u128, 'Fees threshold should be 1e12');
 }
 

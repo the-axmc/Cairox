@@ -8,10 +8,27 @@ received data and the resolution rules defined in market specifications.
 import hashlib
 import json
 import os
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
+
+try:
+    from starknet_py.utils.crypto.facade import pedersen_hash
+except Exception:
+    try:
+        from starkware.crypto.signature.signature import pedersen_hash
+    except Exception:
+        pedersen_hash = None
+
+try:
+    from starknet_py.utils.crypto.signature import sign as starknet_sign
+except Exception:
+    try:
+        from starkware.crypto.signature.signature import sign as starknet_sign
+    except Exception:
+        starknet_sign = None
 
 
 class ResolutionRule(Enum):
@@ -58,6 +75,7 @@ class MarketOutcome:
     raw_value: Any
     resolution_rule: str
     aggregation_method: str
+    raw_data: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
@@ -73,8 +91,17 @@ class MarketOutcome:
         }
 
 
+@dataclass
+class ProofBundle:
+    """Proof data plus optional public inputs."""
+    proof: List[int]
+    public_inputs: Optional[List[int]] = None
+
+
 class MarketResolver:
     """Resolves market outcomes based on specifications and data."""
+
+    STARKNET_PRIME = 2**251 + 17 * 2**192 + 1
 
     def __init__(self, local_cache_dir: Optional[str] = None):
         """
@@ -192,7 +219,119 @@ class MarketResolver:
         serialized = json.dumps(raw_data, sort_keys=True, separators=(',', ':'))
         return hashlib.sha256(serialized.encode()).hexdigest()
 
-    def _store_data(self, data: Dict[str, Any], market_id: str) -> str:
+    def _hash_to_felt(self, hex_hash: str) -> int:
+        """Map a hex hash into a felt252."""
+        return int(hex_hash, 16) % self.STARKNET_PRIME
+
+    def _felt_from_str(self, value: str) -> int:
+        """Pack a short string into felt."""
+        return int.from_bytes(str(value).encode()[:31], "big")
+
+    def _outcome_to_felt(self, outcome: str) -> int:
+        """Encode outcomes consistently for proofs."""
+        if outcome in ("YES", "yes", "Yes", "1", 1):
+            return 1
+        if outcome in ("NO", "no", "No", "0", 0):
+            return 0
+        return self._felt_from_str(outcome)
+
+    def _market_id_to_felt(self, market_id: str) -> int:
+        if isinstance(market_id, int):
+            return market_id
+        if isinstance(market_id, str) and market_id.startswith("0x"):
+            return int(market_id, 16)
+        if isinstance(market_id, str) and market_id.isdigit():
+            return int(market_id)
+        return int.from_bytes(str(market_id).encode()[:31], "big")
+
+    def _message_hash(self, market_id: str, outcome: str, data_hash: str) -> int:
+        if pedersen_hash is None:
+            raise RuntimeError("pedersen_hash not available. Install starknet-py.")
+        market_id_felt = self._market_id_to_felt(market_id)
+        outcome_felt = self._outcome_to_felt(outcome)
+        data_hash_felt = int(data_hash, 16) if isinstance(data_hash, str) else int(data_hash)
+        acc = pedersen_hash(market_id_felt, outcome_felt)
+        return pedersen_hash(acc, data_hash_felt)
+
+    def _parse_int_list(self, data: Any) -> List[int]:
+        if isinstance(data, str):
+            tokens = [t for t in re.split(r"[,\s]+", data.strip()) if t]
+            return [int(t, 16) if t.startswith("0x") else int(t) for t in tokens]
+        if not isinstance(data, list):
+            raise ValueError("Expected a list of integers")
+        return [int(x, 16) if isinstance(x, str) and x.startswith("0x") else int(x) for x in data]
+
+    def _load_public_inputs(self) -> Optional[List[int]]:
+        path = os.getenv("ORACLE_ZK_PUBLIC_INPUTS_PATH")
+        if not path:
+            return None
+        try:
+            with open(path, "r") as f:
+                raw = json.load(f)
+            if isinstance(raw, dict) and "public_inputs" in raw:
+                raw = raw["public_inputs"]
+            return self._parse_int_list(raw)
+        except Exception as exc:
+            raise RuntimeError(f"Failed to load public inputs from {path}: {exc}") from exc
+
+    def build_proof(self, outcome: str, raw_value: Any, data_hash: str, market_id: Optional[str] = None) -> ProofBundle:
+        """
+        Build a cryptographic proof array for on-chain verification.
+
+        Proof layout:
+        [data_hash_felt, sig_r, sig_s]
+        """
+        if market_id is None:
+            raise ValueError("market_id is required for cryptographic proof")
+        proof_path = os.getenv("ORACLE_ZK_PROOF_PATH")
+        proof_dir = os.getenv("ORACLE_ZK_PROOF_DIR")
+        if proof_path or proof_dir:
+            path = proof_path
+            if path is None and proof_dir:
+                path = os.path.join(proof_dir, f"{market_id}.json")
+            try:
+                public_inputs = None
+                raw = None
+                try:
+                    with open(path, "r") as f:
+                        raw = json.load(f)
+                except json.JSONDecodeError:
+                    with open(path, "r") as f:
+                        raw = f.read()
+
+                if isinstance(raw, dict):
+                    if "public_inputs" in raw:
+                        public_inputs = self._parse_int_list(raw["public_inputs"])
+                    elif "inputs" in raw:
+                        public_inputs = self._parse_int_list(raw["inputs"])
+
+                    if "full_proof_with_hints" in raw:
+                        raw = raw["full_proof_with_hints"]
+                    elif "calldata" in raw:
+                        raw = raw["calldata"]
+                    elif "proof" in raw:
+                        raw = raw["proof"]
+
+                proof_list = self._parse_int_list(raw)
+                if public_inputs is None:
+                    public_inputs = self._load_public_inputs()
+                return ProofBundle(proof=proof_list, public_inputs=public_inputs)
+            except Exception as exc:
+                raise RuntimeError(f"Failed to load ZK proof from {path}: {exc}") from exc
+        if starknet_sign is None:
+            raise RuntimeError("sign() not available. Install starknet-py or starkware-crypto.")
+
+        private_key = os.getenv("ORACLE_SIGNER_PRIVATE_KEY") or os.getenv("STARKNET_PRIVATE_KEY")
+        if not private_key:
+            raise RuntimeError("Missing ORACLE_SIGNER_PRIVATE_KEY for signing proofs")
+        priv = int(private_key, 16) if str(private_key).startswith("0x") else int(private_key)
+
+        msg_hash = self._message_hash(market_id, outcome, data_hash)
+        sig_r, sig_s = starknet_sign(msg_hash, priv)
+        data_hash_felt = int(data_hash, 16) if isinstance(data_hash, str) else int(data_hash)
+        return ProofBundle(proof=[data_hash_felt, int(sig_r), int(sig_s)], public_inputs=None)
+
+    def _store_data(self, data: Dict[str, Any], market_id: str, data_hash: str) -> str:
         """
         Store raw data and return URI.
 
@@ -203,7 +342,6 @@ class MarketResolver:
         Returns:
             URI indicating where data is stored
         """
-        data_hash = self._compute_data_hash(data)
         cache_path = os.path.join(self.cache_dir, f"{market_id}_{data_hash}.json")
 
         with open(cache_path, 'w') as f:
@@ -305,8 +443,10 @@ class MarketResolver:
             raise ValueError(f"Unknown resolution rule: {resolution_rule}")
 
         # Store data and compute URI
-        data_uri = self._store_data(data, market_spec.market_id)
-        data_hash = data_uri.split("://")[1]
+        full_hash = self._compute_data_hash(data)
+        data_hash_felt = self._hash_to_felt(full_hash)
+        data_uri = self._store_data(data, market_spec.market_id, full_hash)
+        data_hash = hex(data_hash_felt)
 
         return MarketOutcome(
             market_id=market_spec.market_id,
@@ -317,6 +457,7 @@ class MarketResolver:
             raw_value=aggregated_value,
             resolution_rule=resolution_rule,
             aggregation_method=market_spec.aggregation_method.value,
+            raw_data=data,
         )
 
     def resolve_from_dict(self, spec: Dict[str, Any], data: Dict[str, Any]) -> MarketOutcome:

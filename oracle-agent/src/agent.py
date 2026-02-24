@@ -43,11 +43,14 @@ class OracleAgent:
         
         # Try to get Growthepie URL from environment
         if growthepie_url is None:
-            growthepie_url = os.getenv("GROWTH_API_URL", "https://api.growthepie.xyz")
+            growthepie_url = os.getenv("GROWTH_API_URL", "https://api.growthepie.com")
             self.growthepie = GrowthepieClient(base_url=growthepie_url)
         
         self.resolver = MarketResolver(local_cache_dir=local_cache_dir)
         self.starknet = None
+        self.proposer_bond = int(os.getenv("ORACLE_PROPOSER_BOND", "100"))
+        self.require_signed = os.getenv("ORACLE_REQUIRE_SIGNED", "1") == "1"
+        self.verifier_address = os.getenv("RESOLUTION_VERIFIER_ADDRESS")
         
         # Initialize Starknet if credentials are available
         if os.getenv("STARKNET_ACCOUNT_ADDRESS") and os.getenv("STARKNET_PRIVATE_KEY"):
@@ -164,17 +167,62 @@ class OracleAgent:
             print("Error: Starknet interface not initialized")
             print("Set STARKNET_ACCOUNT_ADDRESS and STARKNET_PRIVATE_KEY environment variables")
             return None
+
+        if self.require_signed and self.starknet.account is None:
+            print("Error: Signed submissions required, but no account is configured")
+            return None
         
         if self.starknet.oracle_address is None:
             print("Error: Oracle contract address not set")
             print("Set ORACLE_CONTRACT_ADDRESS environment variable")
             return None
         
+        proof = None
+        data_hash = outcome.data_hash
+        data_uri = outcome.data_uri
+        requires_proof = False
+        if self.verifier_address:
+            requires_proof = self.starknet.requires_proof(outcome.market_id)
+        if requires_proof:
+            proof_bundle = self.resolver.build_proof(
+                outcome=outcome.outcome,
+                raw_value=outcome.raw_value,
+                data_hash=outcome.data_hash,
+                market_id=outcome.market_id
+            )
+            proof = proof_bundle.proof
+
+            if proof_bundle.public_inputs:
+                public_inputs = proof_bundle.public_inputs
+                if len(public_inputs) < 3:
+                    raise RuntimeError("ZK public inputs must include market_id, outcome, data_hash")
+
+                expected_market = self.resolver._market_id_to_felt(outcome.market_id)
+                expected_outcome = self.resolver._outcome_to_felt(outcome.outcome)
+                if public_inputs[0] != expected_market:
+                    raise RuntimeError("ZK public input market_id does not match outcome.market_id")
+                if public_inputs[1] != expected_outcome:
+                    raise RuntimeError("ZK public input outcome does not match computed outcome")
+
+                zk_data_hash = int(public_inputs[2])
+                if isinstance(data_hash, str):
+                    data_hash_felt = int(data_hash, 16) if data_hash.startswith("0x") else int(data_hash)
+                else:
+                    data_hash_felt = int(data_hash)
+
+                if zk_data_hash != data_hash_felt:
+                    if outcome.raw_data is None:
+                        raise RuntimeError("ZK data_hash mismatch and raw_data is missing")
+                    data_hash = hex(zk_data_hash)
+                    data_uri = self.resolver._store_data(outcome.raw_data, outcome.market_id, data_hash)
+
         return self.starknet.propose(
             market_id=outcome.market_id,
             outcome=outcome.outcome,
-            data_hash=outcome.data_hash,
-            data_uri=outcome.data_uri,
+            data_hash=data_hash,
+            data_uri=data_uri,
+            bond=self.proposer_bond,
+            proof=proof,
         )
     
     def run_market(self, market_id: str, propose: bool = True, finalize: bool = False) -> Optional[MarketOutcome]:

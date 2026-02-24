@@ -17,22 +17,28 @@ mod test {
     use starknet::syscalls::library_call_syscall;
     use cairox_contracts::lmsr_market_maker::ILMSRMarketMaker;
     use cairox_contracts::oracle::IOptimisticOracle;
+    use core::option::OptionTrait;
+    use core::traits::TryInto;
+
+    fn addr(value: u128) -> ContractAddress {
+        value.try_into().unwrap()
+    }
 
     // Test address constants
     pub fn test_collateral_address() -> ContractAddress {
-        ContractAddress::from(0x123456789012345678901234567890123456789012345678901234567890123_u128)
+        addr(0x123456789012345678901234567890123456789012345678901234567890123_u128)
     }
 
     pub fn test_oracle_address() -> ContractAddress {
-        ContractAddress::from(0x123456789012345678901234567890123456789012345678901234567890456_u128)
+        addr(0x123456789012345678901234567890123456789012345678901234567890456_u128)
     }
 
     pub fn test_user_address() -> ContractAddress {
-        ContractAddress::from(0x123456789012345678901234567890123456789012345678901234567890789_u128)
+        addr(0x123456789012345678901234567890123456789012345678901234567890789_u128)
     }
 
     pub fn test_market_factory_address() -> ContractAddress {
-        ContractAddress::from(0x123456789012345678901234567890123456789012345678901234567890abc_u128)
+        addr(0x123456789012345678901234567890123456789012345678901234567890abc_u128)
     }
 
     // Helper to create u256 values
@@ -42,6 +48,8 @@ mod test {
             high: 0,
         }
     }
+
+    const SCALE: u128 = 1_000_000_000_000_000_000_u128;
 
     pub fn u256_value_1e18() -> u256_lib::U256 {
         u256_lib::U256 {
@@ -62,7 +70,7 @@ mod test {
 
         // Deploy test LMSR contract
         // In practice, this would use proper contract deployment
-        let lmsr_address = ContractAddress::from(0x100);
+        let lmsr_address = addr(0x100);
 
         // Initialize the contract (simulated)
         // let mut state = ContractState::new(lmsr_address);
@@ -96,6 +104,18 @@ mod test {
         // Verify price relationship
         // assert(new_yes_price > initial_yes_price, 'YES price increased');
         // assert(new_yes_price < b, 'YES price should be reasonable');
+    }
+
+    #[test]
+    fn test_lmsr_price_sum() {
+        let lmsr = LMSRMarketMaker::constructor();
+        let b = u256_value(1000);
+        let zero = u256_value(0);
+        let price_yes = lmsr.get_price(b, zero, zero, 1);
+        let price_no = lmsr.get_price(b, zero, zero, 0);
+        let sum = price_yes.low + price_no.low;
+        assert(sum > SCALE - 1_000_000_000_000_000_u128, 'Price sum too low');
+        assert(sum < SCALE + 1_000_000_000_000_000_u128, 'Price sum too high');
     }
 
     // Test roundtrip profit - buying and selling at same price should have loss

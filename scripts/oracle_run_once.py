@@ -46,8 +46,8 @@ RESOLVED = 2
 VOIDED = 3
 
 # Resolution outcome constants
-OUTCOME_YES = 0
-OUTCOME_NO = 1
+OUTCOME_YES = 1
+OUTCOME_NO = 0
 
 # Default configuration
 DEFAULT_DEVNET_URL = "http://localhost:5050"
@@ -71,6 +71,7 @@ class OracleRunner:
         self.oracle_contract = None
         self.market_factory = None
         self.lmsr_maker = None
+        self.market_contract = None
         
     async def connect(self) -> bool:
         """Connect to Starknet devnet."""
@@ -114,6 +115,14 @@ class OracleRunner:
                     provider=self.client
                 )
                 print(f"✓ Loaded OptimisticOracle: {oracle_address}")
+
+            if factory_address:
+                self.market_factory = Contract(
+                    address=int(factory_address, 16) if isinstance(factory_address, str) else factory_address,
+                    abi=self._get_factory_abi(),
+                    provider=self.client
+                )
+                print(f"✓ Loaded MarketFactory: {factory_address}")
             
             return True
             
@@ -179,11 +188,26 @@ class OracleRunner:
                 {"name": "market_id", "type": "felt"},
                 {"name": "outcome", "type": "felt"},
                 {"name": "data_hash", "type": "felt"},
+                {"name": "bond", "type": "u256"},
                 {"name": "zk_proof", "type": "felt*"}
             ], "type": "function"},
             {"name": "fast_finalize", "inputs": [
                 {"name": "market_id", "type": "felt"}
             ], "type": "function"},
+        ]
+
+    def _get_factory_abi(self) -> List[Dict]:
+        return [
+            {"name": "get_market", "inputs": [
+                {"name": "market_id", "type": "u256"}
+            ], "type": "function", "outputs": [
+                {"name": "market_address", "type": "felt"}
+            ]},
+        ]
+
+    def _get_market_abi(self) -> List[Dict]:
+        return [
+            {"name": "resolve_from_oracle", "inputs": [], "type": "function"},
         ]
     
     async def get_due_markets(self) -> List[int]:
@@ -214,7 +238,7 @@ class OracleRunner:
         print("\n=== Fetching growthepie Data ===")
         
         # In production, this would call the growthepie API:
-        # curl -s https://api.growthepie.xyz/v1/daily-active-addresses?chain=starknet
+        # curl -s https://api.growthepie.com/v1/daily-active-addresses?chain=starknet
         
         # For demo, we'll simulate by returning mock data
         print("  Simulating growthepie API call...")
@@ -260,12 +284,12 @@ class OracleRunner:
         
         mock_data = {
             "date": time.strftime("%Y-%m-%d"),
-            "fees": 500000000000,  # 5e11 (500k USDC with 6 decimals)
+            "fees": 500000000000,  # 5e11 (500k stablecoin with 6 decimals)
             "fees_7d_avg": 480000000000,
         }
         
         print(f"  ✓ Fetched fees data:")
-        print(f"    - Fees (today): {mock_data['fees'] / 1e6:.2f} USDC")
+        print(f"    - Fees (today): {mock_data['fees'] / 1e6:.2f} Stablecoin")
         
         return mock_data
     
@@ -273,7 +297,7 @@ class OracleRunner:
         """
         Resolve a DAA market based on threshold.
         
-        Returns: (outcome, threshold_passed) where outcome is 0=YES, 1=NO
+        Returns: (outcome, threshold_passed) where outcome is 1=YES, 0=NO
         """
         print(f"\n=== Resolving DAA Market: {market_id} ===")
         
@@ -301,7 +325,7 @@ class OracleRunner:
         """
         Resolve a txcount market based on threshold.
         
-        Returns: (outcome, threshold_passed) where outcome is 0=YES, 1=NO
+        Returns: (outcome, threshold_passed) where outcome is 1=YES, 0=NO
         """
         print(f"\n=== Resolving TXCount Market: {market_id} ===")
         
@@ -329,7 +353,7 @@ class OracleRunner:
         """
         Resolve a fees market based on threshold.
         
-        Returns: (outcome, threshold_passed) where outcome is 0=YES, 1=NO
+        Returns: (outcome, threshold_passed) where outcome is 1=YES, 0=NO
         """
         print(f"\n=== Resolving Fees Market: {market_id} ===")
         
@@ -339,8 +363,8 @@ class OracleRunner:
         
         # Get fees value
         fees_value = fees_data.get('fees', 0)
-        print(f"  Fees Value: {fees_value / 1e6:.2f} USDC")
-        print(f"  Threshold: {FEES_THRESHOLD / 1e6:.2f} USDC")
+        print(f"  Fees Value: {fees_value / 1e6:.2f} Stablecoin")
+        print(f"  Threshold: {FEES_THRESHOLD / 1e6:.2f} Stablecoin")
         
         # Compare fees to threshold
         threshold_passed = fees_value >= FEES_THRESHOLD
@@ -368,10 +392,10 @@ class OracleRunner:
         try:
             # Build proposal data
             data_uri = "ipfs://resolution-data"
-            bond = 100 * 10**6  # 100 USDC
+            bond = 100 * 10**6  # 100 stablecoin
             
             print(f"  Market ID: {market_id}")
-            print(f"  Outcome: {outcome} (0=YES, 1=NO)")
+            print(f"  Outcome: {outcome} (1=YES, 0=NO)")
             print(f"  Data Hash: {data_hash}")
             
             # Call oracle.propose()
@@ -412,7 +436,7 @@ class OracleRunner:
         
         try:
             print(f"  Market ID: {market_id}")
-            print(f"  Outcome: {outcome} (0=YES, 1=NO)")
+            print(f"  Outcome: {outcome} (1=YES, 0=NO)")
             
             # Call oracle.resolve_arbitration()
             result = await self.oracle_contract.functions["resolve_arbitration"].invoke(
@@ -431,13 +455,39 @@ class OracleRunner:
             status = await self.oracle_contract.functions["get_market_status"].call(market_id)
             status_str = {0: "PENDING", 1: "PROPOSED", 2: "RESOLVED", 3: "VOIDED"}.get(status, f"UNKNOWN({status})")
             print(f"  ✓ Market status: {status_str}")
-            
-            return status == RESOLVED
+
+            if status == RESOLVED:
+                await self.resolve_market_from_oracle(market_id)
+                return True
+            return False
             
         except Exception as e:
             print(f"  ✗ Arbitration failed: {e}")
             import traceback
             traceback.print_exc()
+            return False
+
+    async def resolve_market_from_oracle(self, market_id: int) -> bool:
+        """Resolve the Market contract via OptimisticOracle outcome."""
+        if not self.market_factory:
+            return False
+        try:
+            market_addr = await self.market_factory.functions["get_market"].call(
+                market_id={"low": market_id, "high": 0}
+            )
+            market = Contract(
+                address=int(market_addr),
+                abi=self._get_market_abi(),
+                provider=self.client
+            )
+            result = await market.functions["resolve_from_oracle"].invoke(
+                max_fee=int(1e16)
+            )
+            await wait_for_tx(self.client, result.transaction_hash)
+            print("  ✓ Market resolved from oracle")
+            return True
+        except Exception as e:
+            print(f"  ✗ Failed to resolve market from oracle: {e}")
             return False
     
     async def run(self) -> bool:

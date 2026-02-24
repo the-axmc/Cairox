@@ -49,8 +49,8 @@ RESOLVED = 2
 VOIDED = 3
 
 # Resolution outcome constants
-OUTCOME_YES = 0
-OUTCOME_NO = 1
+OUTCOME_YES = 1
+OUTCOME_NO = 0
 
 # Default configuration
 DEFAULT_RPC_URL = "https://starknet-testnet.public.blastapi.io/rpc/v0_7"
@@ -66,18 +66,21 @@ FEES_THRESHOLD = 1_000_000_000_000  # 1e12
 class E2ETestnetRunner:
     """E2E testnet runner for Cairox DAA cycle."""
     
-    def __init__(self, rpc_url: str, account_address: str, private_key: str):
+    def __init__(self, rpc_url: str, account_address: str, private_key: str, initial_subsidy: int):
         self.rpc_url = rpc_url
         self.account_address = account_address
         self.private_key = private_key
+        self.initial_subsidy = initial_subsidy
         self.client = None
         self.account = None
         self.oracle_contract = None
         self.collateral_vault = None
         self.market_factory = None
         self.lmsr_maker = None
-        self.usdc_token = None
+        self.stablecoin_token = None
         self.daa_market_id = None
+        self.daa_market_address = None
+        self.daa_market_contract = None
         
     async def connect(self) -> bool:
         """Connect to Starknet testnet."""
@@ -120,7 +123,11 @@ class E2ETestnetRunner:
         oracle_address = os.environ.get('ORACLE_ADDRESS_TESTNET')
         factory_address = os.environ.get('MARKET_FACTORY_ADDRESS_TESTNET')
         vault_address = os.environ.get('COLLATERAL_VAULT_ADDRESS_TESTNET')
-        usdc_address = os.environ.get('USDC_ADDRESS_TESTNET')
+        stablecoin_address = (
+            os.environ.get('STABLECOIN_ADDRESS_TESTNET')
+            or os.environ.get('COLLATERAL_TOKEN_ADDRESS')
+            or os.environ.get('USDC_ADDRESS_TESTNET')
+        )
         
         if oracle_address:
             self.oracle_contract = Contract(
@@ -146,22 +153,24 @@ class E2ETestnetRunner:
             )
             print(f"✓ Loaded CollateralVault: {vault_address}")
         
-        if usdc_address:
-            self.usdc_token = Contract(
-                address=int(usdc_address, 16),
-                abi=self._get_usdc_abi(),
+        if stablecoin_address:
+            self.stablecoin_token = Contract(
+                address=int(stablecoin_address, 16),
+                abi=self._get_stablecoin_abi(),
                 provider=self.account
             )
-            print(f"✓ Loaded USDC Token: {usdc_address}")
+            print(f"✓ Loaded Stablecoin Token: {stablecoin_address}")
         
         # If contracts not in environment, ask user to provide
-        if not all([oracle_address, factory_address, vault_address, usdc_address]):
+        if not all([oracle_address, factory_address, vault_address, stablecoin_address]):
             print("\n  ⚠️  Some contracts not found in environment variables")
             print("  Please set:")
             print("    ORACLE_ADDRESS_TESTNET")
             print("    MARKET_FACTORY_ADDRESS_TESTNET")
             print("    COLLATERAL_VAULT_ADDRESS_TESTNET")
-            print("    USDC_ADDRESS_TESTNET")
+            print("    STABLECOIN_ADDRESS_TESTNET")
+            print("    COLLATERAL_TOKEN_ADDRESS")
+            print("    USDC_ADDRESS_TESTNET (legacy)")
             
             # Check if user wants to provide addresses manually
             if not oracle_address:
@@ -173,11 +182,14 @@ class E2ETestnetRunner:
                         provider=self.account
                     )
         
-        return bool(self.oracle_contract and self.market_factory and self.collateral_vault and self.usdc_token)
+        return bool(self.oracle_contract and self.market_factory and self.collateral_vault and self.stablecoin_token)
     
     def _get_oracle_abi(self) -> List[Dict]:
         """Get OptimisticOracle ABI."""
         return [
+            {"name": "set_market_factory", "inputs": [
+                {"name": "market_factory", "type": "felt"}
+            ], "type": "function"},
             {"name": "propose", "inputs": [
                 {"name": "market_id", "type": "felt"},
                 {"name": "outcome", "type": "felt"},
@@ -205,11 +217,44 @@ class E2ETestnetRunner:
         """Get MarketFactory ABI."""
         return [
             {"name": "create_market", "inputs": [
-                {"name": "metadata_uri", "type": "felt"}
+                {"name": "question", "type": "felt"},
+                {"name": "initial_subsidy", "type": "u256"}
             ], "type": "function", "outputs": [
-                {"name": "market_id", "type": "felt"}
+                {"name": "market_id", "type": "u256"}
+            ]},
+            {"name": "get_market_count", "inputs": [], "type": "function", "outputs": [
+                {"name": "count", "type": "u256"}
+            ]},
+            {"name": "get_market", "inputs": [
+                {"name": "market_id", "type": "u256"}
+            ], "type": "function", "outputs": [
+                {"name": "market_address", "type": "felt"}
             ]},
         ]
+
+    def _get_market_abi(self) -> List[Dict]:
+        """Get Market ABI (minimal)."""
+        return [
+            {"name": "resolve_from_oracle", "inputs": [], "type": "function"},
+            {"name": "redeem", "inputs": [], "type": "function", "outputs": [
+                {"name": "winnings", "type": "u256"}
+            ]},
+            {"name": "get_status", "inputs": [], "type": "function", "outputs": [
+                {"name": "status", "type": "felt"}
+            ]},
+        ]
+
+    def _u256_to_int(self, value) -> int:
+        if isinstance(value, dict):
+            return int(value.get("low", 0)) + (int(value.get("high", 0)) << 128)
+        if hasattr(value, "low"):
+            return int(value.low) + (int(value.high) << 128)
+        if isinstance(value, (list, tuple)) and len(value) == 2:
+            return int(value[0]) + (int(value[1]) << 128)
+        return int(value)
+
+    def _to_u256(self, value: int) -> Dict:
+        return {"low": value & ((1 << 128) - 1), "high": value >> 128}
     
     def _get_vault_abi(self) -> List[Dict]:
         """Get CollateralVault ABI."""
@@ -229,8 +274,8 @@ class E2ETestnetRunner:
             ]},
         ]
     
-    def _get_usdc_abi(self) -> List[Dict]:
-        """Get USDC Token ABI."""
+    def _get_stablecoin_abi(self) -> List[Dict]:
+        """Get stablecoin token ABI."""
         return [
             {"name": "balance_of", "inputs": [
                 {"name": "account", "type": "felt"}
@@ -239,6 +284,12 @@ class E2ETestnetRunner:
             ]},
             {"name": "decimals", "inputs": [], "type": "function", "outputs": [
                 {"name": "decimals", "type": "u8"}
+            ]},
+            {"name": "approve", "inputs": [
+                {"name": "spender", "type": "felt"},
+                {"name": "amount", "type": "u256"}
+            ], "type": "function", "outputs": [
+                {"name": "ok", "type": "bool"}
             ]},
             {"name": "transfer", "inputs": [
                 {"name": "to", "type": "felt"},
@@ -255,24 +306,67 @@ class E2ETestnetRunner:
             return 0
         
         try:
-            # Create market with metadata
-            metadata_uri = encode_felt("ipfs://daa-market-metadata")
-            
+            count_before = await self.market_factory.functions["get_market_count"].call()
+            count_before_value = count_before
+            if isinstance(count_before, dict):
+                count_before_value = count_before.get("count", count_before)
+            elif hasattr(count_before, "count"):
+                count_before_value = count_before.count
+            count_before_int = self._u256_to_int(count_before_value)
+
+            question = encode_felt("DAA >= threshold?")
+
+            if self.oracle_contract and self.market_factory:
+                try:
+                    set_tx = await self.oracle_contract.functions["set_market_factory"].invoke(
+                        market_factory=int(self.market_factory.address),
+                        max_fee=int(1e16)
+                    )
+                    await wait_for_tx(self.client, set_tx.transaction_hash)
+                except Exception as e:
+                    print(f"  ⚠ Failed to set market factory on oracle: {e}")
+
+            if self.stablecoin_token:
+                try:
+                    approve_tx = await self.stablecoin_token.functions["approve"].invoke(
+                        spender=int(self.market_factory.address),
+                        amount=self._to_u256(self.initial_subsidy),
+                        max_fee=int(1e16)
+                    )
+                    await wait_for_tx(self.client, approve_tx.transaction_hash)
+                except Exception as e:
+                    print(f"  ⚠ Failed to approve subsidy: {e}")
+
             result = await self.market_factory.functions["create_market"].invoke(
-                metadata_uri=metadata_uri,
+                question=question,
+                initial_subsidy=self._to_u256(self.initial_subsidy),
                 max_fee=int(1e17)
             )
-            
+
             print(f"  ✓ Market creation submitted: {hex(result.transaction_hash)}")
-            
+
             # Wait for acceptance
             await wait_for_tx(self.client, result.transaction_hash)
             print(f"  ✓ Market created")
-            
-            # Get market ID from events (simplified - in production parse events)
-            self.daa_market_id = 1001  # For demo, use a known ID
-            
+
+            self.daa_market_id = count_before_int
             print(f"  ✓ DAA Market ID: {self.daa_market_id}")
+
+            market_addr_raw = await self.market_factory.functions["get_market"].call(
+                market_id={"low": self.daa_market_id, "high": 0}
+            )
+            market_addr = market_addr_raw
+            if isinstance(market_addr_raw, dict):
+                market_addr = market_addr_raw.get("market_address", market_addr_raw)
+            elif hasattr(market_addr_raw, "market_address"):
+                market_addr = market_addr_raw.market_address
+            self.daa_market_address = int(market_addr)
+            self.daa_market_contract = Contract(
+                address=self.daa_market_address,
+                abi=self._get_market_abi(),
+                provider=self.account
+            )
+            print(f"  ✓ DAA Market Address: {hex(self.daa_market_address)}")
             return self.daa_market_id
             
         except Exception as e:
@@ -290,7 +384,7 @@ class E2ETestnetRunner:
             
             async with aiohttp.ClientSession() as session:
                 # Mock API call - in production, this would call growthepie
-                # url = "https://api.growthepie.xyz/v1/daily-active-addresses?chain=starknet"
+                # url = "https://api.growthepie.com/v1/daily-active-addresses?chain=starknet"
                 print("  Simulating API call to growthepie...")
                 
                 # Simulate response
@@ -365,7 +459,7 @@ class E2ETestnetRunner:
                 }
                 
                 print(f"  ✓ Fetched fees data:")
-                print(f"    - Fees (today): {mock_response['fees'] / 1e6:.2f} USDC")
+                print(f"    - Fees (today): {mock_response['fees'] / 1e6:.2f} Stablecoin")
                 
                 return mock_response
                 
@@ -417,13 +511,32 @@ class E2ETestnetRunner:
             status = await self.oracle_contract.functions["get_market_status"].call(self.daa_market_id)
             status_str = {0: "PENDING", 1: "PROPOSED", 2: "RESOLVED", 3: "VOIDED"}.get(status, f"UNKNOWN({status})")
             print(f"  ✓ Market status: {status_str}")
-            
-            return status == RESOLVED
+
+            if status == RESOLVED:
+                await self.resolve_market_from_oracle()
+                return True
+            return False
             
         except Exception as e:
             print(f"  ✗ Failed to resolve: {e}")
             import traceback
             traceback.print_exc()
+            return False
+
+    async def resolve_market_from_oracle(self) -> bool:
+        """Resolve the on-chain Market from OptimisticOracle outcome."""
+        if not self.daa_market_contract:
+            print("  ✗ Market contract not loaded")
+            return False
+        try:
+            result = await self.daa_market_contract.functions["resolve_from_oracle"].invoke(
+                max_fee=int(1e17)
+            )
+            await wait_for_tx(self.client, result.transaction_hash)
+            print("  ✓ Market resolved from oracle")
+            return True
+        except Exception as e:
+            print(f"  ✗ Failed to resolve market from oracle: {e}")
             return False
     
     async def verify_vault_balances(self) -> Dict:
@@ -439,10 +552,10 @@ class E2ETestnetRunner:
             balance = await self.collateral_vault.functions["get_balance"].call(self.account_address)
             balance_value = balance.low + (balance.high << 128)
             
-            # Get USDC decimals
-            decimals = await self.usdc_token.functions["decimals"].call()
+            # Get stablecoin decimals
+            decimals = await self.stablecoin_token.functions["decimals"].call()
             
-            print(f"  Account Balance: {balance_value / 10**decimals:.2f} USDC")
+            print(f"  Account Balance: {balance_value / 10**decimals:.2f} Stablecoin")
             
             return {
                 "account_balance": balance_value,
@@ -503,7 +616,7 @@ class E2ETestnetRunner:
         has_oracle = bool(self.oracle_contract)
         has_factory = bool(self.market_factory)
         has_vault = bool(self.collateral_vault)
-        has_usdc = bool(self.usdc_token)
+        has_stablecoin = bool(self.stablecoin_token)
         
         if not has_oracle:
             print("\n  ⚠️  Oracle contract not available")
@@ -551,7 +664,7 @@ class E2ETestnetRunner:
             print(f"  Test {i}: {status}")
         
         if balances:
-            print(f"\n  Account Balance: {balances.get('account_balance', 0) / 10**balances.get('decimals', 6):.2f} USDC")
+            print(f"\n  Account Balance: {balances.get('account_balance', 0) / 10**balances.get('decimals', 6):.2f} Stablecoin")
         
         if passed == total:
             print(f"\n  ✓ All tests passed!")
@@ -581,6 +694,12 @@ async def main():
         default=DEFAULT_PRIVATE_KEY,
         help=f"Private key (default: {DEFAULT_PRIVATE_KEY})"
     )
+    parser.add_argument(
+        "--initial-subsidy",
+        default=int(os.getenv("INITIAL_SUBSIDY", "1000000")),
+        type=int,
+        help="Initial LMSR subsidy (base units)"
+    )
     
     args = parser.parse_args()
     
@@ -597,7 +716,8 @@ async def main():
     runner = E2ETestnetRunner(
         rpc_url=args.rpc_url,
         account_address=account_addr,
-        private_key=private_key
+        private_key=private_key,
+        initial_subsidy=args.initial_subsidy
     )
     
     success = await runner.run()
