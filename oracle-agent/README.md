@@ -166,7 +166,8 @@ python -m agent --network goerli
 
 - Makes HTTP requests to Growthepie API
 - Handles timeouts, connection errors, and HTTP errors gracefully
-- Performs health check before fetching data
+- Performs health check before fetching data using `GET /v1/master.json` (per Growthepie API docs)
+- Export endpoints return arrays; the agent normalizes them and picks the latest datapoint (prefers `origin_key == "starknet"`)
 
 ### 2. Compute Outcome
 
