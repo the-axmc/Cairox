@@ -66,6 +66,11 @@ fn test_mint_complete_set() {
         lmsr_market_maker: lmsr_address(),
         b_param: u256_value(1000),
         oracle: oracle_address(),
+        launch_config: addr(0_u128),
+        circuit_breaker: addr(0_u128),
+        launch_config: addr(0_u128),
+        circuit_breaker: addr(0_u128),
+        privacy_adapter: addr(0_u128),
         market_id: 1
     );
     
@@ -110,6 +115,9 @@ fn test_redeem_winning() {
         lmsr_market_maker: lmsr_address(),
         b_param: u256_value(1000),
         oracle: oracle_address(),
+        launch_config: addr(0_u128),
+        circuit_breaker: addr(0_u128),
+        privacy_adapter: addr(0_u128),
         market_id: 2
     );
     
@@ -140,6 +148,9 @@ fn test_redeem_void() {
         lmsr_market_maker: lmsr_address(),
         b_param: u256_value(1000),
         oracle: oracle_address(),
+        launch_config: addr(0_u128),
+        circuit_breaker: addr(0_u128),
+        privacy_adapter: addr(0_u128),
         market_id: 3
     );
     
@@ -169,6 +180,9 @@ fn test_insolvency_prevention() {
         lmsr_market_maker: lmsr_address(),
         b_param: u256_value(1000),
         oracle: oracle_address(),
+        launch_config: addr(0_u128),
+        circuit_breaker: addr(0_u128),
+        privacy_adapter: addr(0_u128),
         market_id: 4
     );
     
@@ -202,6 +216,9 @@ fn test_multiple_users() {
         lmsr_market_maker: lmsr_address(),
         b_param: u256_value(1000),
         oracle: oracle_address(),
+        launch_config: addr(0_u128),
+        circuit_breaker: addr(0_u128),
+        privacy_adapter: addr(0_u128),
         market_id: 5
     );
     
@@ -230,6 +247,9 @@ fn test_outcome_token_balance() {
         lmsr_market_maker: lmsr_address(),
         b_param: u256_value(1000),
         oracle: oracle_address(),
+        launch_config: addr(0_u128),
+        circuit_breaker: addr(0_u128),
+        privacy_adapter: addr(0_u128),
         market_id: 6
     );
     
@@ -260,6 +280,9 @@ fn test_cannot_redeem_before_resolution() {
         lmsr_market_maker: lmsr_address(),
         b_param: u256_value(1000),
         oracle: oracle_address(),
+        launch_config: addr(0_u128),
+        circuit_breaker: addr(0_u128),
+        privacy_adapter: addr(0_u128),
         market_id: 7
     );
     
@@ -285,6 +308,9 @@ fn test_cannot_redeem_before_void() {
         lmsr_market_maker: lmsr_address(),
         b_param: u256_value(1000),
         oracle: oracle_address(),
+        launch_config: addr(0_u128),
+        circuit_breaker: addr(0_u128),
+        privacy_adapter: addr(0_u128),
         market_id: 8
     );
     

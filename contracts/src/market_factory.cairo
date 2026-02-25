@@ -33,13 +33,20 @@ trait IOptimisticOracle<TContractState> {
     fn register_market(ref self: TContractState, market_id: felt252);
 }
 
+#[starknet::interface]
+trait ILaunchConfig<TContractState> {
+    fn can_create_market(self: @TContractState, creator: felt252) -> bool;
+    fn register_market(ref self: TContractState);
+    fn get_b_parameter(self: @TContractState) -> u256;
+}
+
 #[starknet::contract]
 mod MarketFactory {
     use super::{
         IERC20Dispatcher, IERC20DispatcherTrait, ILMSRMarketMakerDispatcher,
         ILMSRMarketMakerDispatcherTrait, IMarketDispatcher, IMarketDispatcherTrait,
         IOptimisticOracleDispatcher, IOptimisticOracleDispatcherTrait, IOutcomeTokenDispatcher,
-        IOutcomeTokenDispatcherTrait,
+        IOutcomeTokenDispatcherTrait, ILaunchConfigDispatcher, ILaunchConfigDispatcherTrait,
     };
     use core::array::Array;
     use core::array::ArrayTrait;
@@ -63,6 +70,9 @@ mod MarketFactory {
         lmsr_market_maker: ContractAddress,
         b_param: u256,
         oracle: ContractAddress,
+        launch_config: ContractAddress,
+        circuit_breaker: ContractAddress,
+        privacy_adapter: ContractAddress,
         market_count: u256,
         // market_id -> market info
         markets: Map<u256, ContractAddress>,
@@ -109,7 +119,10 @@ mod MarketFactory {
         outcome_token_class_hash: ClassHash,
         lmsr_market_maker: ContractAddress,
         b_param: u256,
-        oracle: ContractAddress
+        oracle: ContractAddress,
+        launch_config: ContractAddress,
+        circuit_breaker: ContractAddress,
+        privacy_adapter: ContractAddress
     ) {
         let owner = deployer_address();
         self.owner.write(owner);
@@ -119,6 +132,9 @@ mod MarketFactory {
         self.lmsr_market_maker.write(lmsr_market_maker);
         self.b_param.write(b_param);
         self.oracle.write(oracle);
+        self.launch_config.write(launch_config);
+        self.circuit_breaker.write(circuit_breaker);
+        self.privacy_adapter.write(privacy_adapter);
         self.market_count.write(u256 { low: 0, high: 0 });
     }
 
@@ -132,18 +148,57 @@ mod MarketFactory {
     }
 
     #[external(v0)]
+    fn set_launch_config(ref self: ContractState, launch_config: ContractAddress) {
+        let caller = starknet::get_caller_address();
+        let owner = self.owner.read();
+        assert(caller == owner, 'Not owner');
+        self.launch_config.write(launch_config);
+    }
+
+    #[external(v0)]
+    fn set_circuit_breaker(ref self: ContractState, circuit_breaker: ContractAddress) {
+        let caller = starknet::get_caller_address();
+        let owner = self.owner.read();
+        assert(caller == owner, 'Not owner');
+        self.circuit_breaker.write(circuit_breaker);
+    }
+
+    #[external(v0)]
+    fn set_privacy_adapter(ref self: ContractState, privacy_adapter: ContractAddress) {
+        let caller = starknet::get_caller_address();
+        let owner = self.owner.read();
+        assert(caller == owner, 'Not owner');
+        self.privacy_adapter.write(privacy_adapter);
+    }
+
+    #[external(v0)]
     fn create_market(
         ref self: ContractState,
         question_hash: felt252,
         question_uri: felt252,
         initial_subsidy: u256
     ) -> u256 {
+        let caller = starknet::get_caller_address();
+        let launch_cfg = self.launch_config.read();
+        if !is_zero_address(launch_cfg) {
+            let cfg = ILaunchConfigDispatcher { contract_address: launch_cfg };
+            let creator: felt252 = caller.into();
+            assert(cfg.can_create_market(creator), 'Launch: creation not allowed');
+        }
+
         let id = self.market_count.read();
         self.market_count.write(id + u256 { low: 1, high: 0 });
 
         let lmsr_addr = self.lmsr_market_maker.read();
         assert(!is_zero_address(lmsr_addr), 'LMSR not set');
-        let b = self.b_param.read();
+        let mut b = self.b_param.read();
+        if !is_zero_address(launch_cfg) {
+            let cfg = ILaunchConfigDispatcher { contract_address: launch_cfg };
+            let cfg_b = cfg.get_b_parameter();
+            if cfg_b.low != 0 || cfg_b.high != 0 {
+                b = cfg_b;
+            }
+        }
         let lmsr = ILMSRMarketMakerDispatcher { contract_address: lmsr_addr };
         let min_subsidy = lmsr.get_initial_cost(b);
         assert(initial_subsidy >= min_subsidy, 'Insufficient subsidy');
@@ -188,6 +243,9 @@ mod MarketFactory {
         market_calldata.append(b.low.into());
         market_calldata.append(b.high.into());
         market_calldata.append(self.oracle.read().into());
+        market_calldata.append(self.launch_config.read().into());
+        market_calldata.append(self.circuit_breaker.read().into());
+        market_calldata.append(self.privacy_adapter.read().into());
         market_calldata.append(id.low.into());
         let market_salt: felt252 = (id.low + 2_u128).into();
         let (market_addr, _) = deploy_syscall(
@@ -206,7 +264,6 @@ mod MarketFactory {
 
         let zero = u256 { low: 0, high: 0 };
         if initial_subsidy > zero {
-            let caller = starknet::get_caller_address();
             let collateral = IERC20Dispatcher { contract_address: self.collateral_token.read() };
             let ok = collateral.transfer_from(caller, market_addr, initial_subsidy);
             assert(ok, 'Collateral transfer failed');
@@ -222,6 +279,10 @@ mod MarketFactory {
 
         // Store market address
         self.markets.write(id, market_addr);
+        if !is_zero_address(launch_cfg) {
+            let cfg = ILaunchConfigDispatcher { contract_address: launch_cfg };
+            cfg.register_market();
+        }
         self.emit(MarketCreated {
             market_id: id,
             market_address: market_addr,
@@ -242,6 +303,21 @@ mod MarketFactory {
     #[external(v0)]
     fn get_market(self: @ContractState, market_id: u256) -> felt252 {
         self.markets.read(market_id).into()
+    }
+
+    #[external(v0)]
+    fn get_launch_config(self: @ContractState) -> ContractAddress {
+        self.launch_config.read()
+    }
+
+    #[external(v0)]
+    fn get_circuit_breaker(self: @ContractState) -> ContractAddress {
+        self.circuit_breaker.read()
+    }
+
+    #[external(v0)]
+    fn get_privacy_adapter(self: @ContractState) -> ContractAddress {
+        self.privacy_adapter.read()
     }
 
     #[external(v0)]

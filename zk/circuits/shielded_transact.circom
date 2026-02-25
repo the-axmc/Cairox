@@ -10,7 +10,7 @@ pragma circom 2.0.0;
 //
 // Public inputs are aligned with ShieldedPool.transact expected layout:
 // [old_root, new_root, nullifier1, nullifier2, market_state_hash, action, market_id, outcome,
-//  amount_low, amount_high, limit_low, limit_high, relayer, fee_low, fee_high]
+//  amount_low, amount_high, limit_low, limit_high, relayer, fee_low, fee_high, recipient]
 
 include "../node_modules/circomlib/circuits/poseidon.circom";
 include "../node_modules/circomlib/circuits/comparators.circom";
@@ -22,22 +22,28 @@ template MerkleRoot(DEPTH) {
     signal input pathIndices[DEPTH]; // 0 = leaf on left, 1 = leaf on right
     signal output root;
 
+    component h[DEPTH];
+    signal left[DEPTH];
+    signal right[DEPTH];
+    signal cur[DEPTH + 1];
+    signal delta[DEPTH];
+    signal prod[DEPTH];
+    cur[0] <== leaf;
+
     var i;
-    var cur;
-    cur = leaf;
     for (i = 0; i < DEPTH; i++) {
         // enforce pathIndices[i] is boolean
         pathIndices[i] * (pathIndices[i] - 1) === 0;
-        signal left;
-        signal right;
-        left <== (1 - pathIndices[i]) * cur + pathIndices[i] * pathElements[i];
-        right <== pathIndices[i] * cur + (1 - pathIndices[i]) * pathElements[i];
-        component h = Poseidon(2);
-        h.inputs[0] <== left;
-        h.inputs[1] <== right;
-        cur <== h.out;
+        delta[i] <== pathElements[i] - cur[i];
+        prod[i] <== pathIndices[i] * delta[i];
+        left[i] <== cur[i] + prod[i];
+        right[i] <== pathElements[i] - prod[i];
+        h[i] = Poseidon(2);
+        h[i].inputs[0] <== left[i];
+        h[i].inputs[1] <== right[i];
+        cur[i + 1] <== h[i].out;
     }
-    root <== cur;
+    root <== cur[DEPTH];
 }
 
 template Range128() {
@@ -120,6 +126,7 @@ template ShieldedTransact(DEPTH) {
     signal input relayer;
     signal input fee_low;
     signal input fee_high;
+    signal input recipient;
 
     // Private inputs for two input notes
     signal input in_owner_pubkey1;
@@ -159,8 +166,28 @@ template ShieldedTransact(DEPTH) {
     signal input out_path_indices1[DEPTH];
     signal input out_path_indices2[DEPTH];
 
-    // Enforce action is in {0,1,2,3}
-    action * (action - 1) * (action - 2) * (action - 3) === 0;
+    // Enforce action is in {0,1,2,3,4,5}
+    component eq_action0 = IsEqual();
+    eq_action0.in[0] <== action;
+    eq_action0.in[1] <== 0;
+    component eq_action1 = IsEqual();
+    eq_action1.in[0] <== action;
+    eq_action1.in[1] <== 1;
+    component eq_action2 = IsEqual();
+    eq_action2.in[0] <== action;
+    eq_action2.in[1] <== 2;
+    component eq_action3 = IsEqual();
+    eq_action3.in[0] <== action;
+    eq_action3.in[1] <== 3;
+    component eq_action4 = IsEqual();
+    eq_action4.in[0] <== action;
+    eq_action4.in[1] <== 4;
+    component eq_action5 = IsEqual();
+    eq_action5.in[0] <== action;
+    eq_action5.in[1] <== 5;
+    signal action_ok;
+    action_ok <== eq_action0.out + eq_action1.out + eq_action2.out + eq_action3.out + eq_action4.out + eq_action5.out;
+    action_ok === 1;
 
     // Enforce outcome is 0/1
     outcome * (outcome - 1) === 0;
@@ -212,29 +239,49 @@ template ShieldedTransact(DEPTH) {
     out_market_id1 === market_id;
     out_market_id2 === market_id;
 
-    // Merkle membership for input notes (old_root)
+    // Action helpers
+    signal is_buy;
+    is_buy <== eq_action1.out;
+    signal is_sell;
+    is_sell <== eq_action2.out;
+    signal is_redeem;
+    is_redeem <== eq_action3.out;
+    signal is_deposit;
+    is_deposit <== eq_action4.out;
+    signal is_withdraw;
+    is_withdraw <== eq_action5.out;
+
+    signal is_trade;
+    is_trade <== is_buy + is_sell + is_redeem;
+    is_trade * (is_trade - 1) === 0;
+
+    signal needs_inputs;
+    needs_inputs <== is_trade + is_withdraw;
+    needs_inputs * (needs_inputs - 1) === 0;
+
+    // Merkle membership for input notes (old_root) - only required for trades/withdrawals
     component in_root1 = MerkleRoot(DEPTH);
     in_root1.leaf <== in_commitment1;
     in_root1.pathElements <== in_path_elements1;
     in_root1.pathIndices <== in_path_indices1;
-    in_root1.root === old_root;
+    (in_root1.root - old_root) * needs_inputs === 0;
 
     component in_root2 = MerkleRoot(DEPTH);
     in_root2.leaf <== in_commitment2;
     in_root2.pathElements <== in_path_elements2;
     in_root2.pathIndices <== in_path_indices2;
-    in_root2.root === old_root;
+    (in_root2.root - old_root) * needs_inputs === 0;
 
     // Nullifiers
     component n1 = Poseidon(2);
     n1.inputs[0] <== in_commitment1;
     n1.inputs[1] <== in_nullifier_secret1;
-    n1.out === nullifier1;
+    (n1.out - nullifier1) * needs_inputs === 0;
 
     component n2 = Poseidon(2);
     n2.inputs[0] <== in_commitment2;
     n2.inputs[1] <== in_nullifier_secret2;
-    n2.out === nullifier2;
+    (n2.out - nullifier2) * needs_inputs === 0;
 
     // Merkle insertion for output notes (new_root)
     component out_root1 = MerkleRoot(DEPTH);
@@ -265,30 +312,27 @@ template ShieldedTransact(DEPTH) {
     state_hash.inputs[3] <== price_yes;
     state_hash.inputs[4] <== price_no;
     state_hash.inputs[5] <== state_timestamp;
-    state_hash.out === market_state_hash;
+    (state_hash.out - market_state_hash) * is_trade === 0;
 
     // Ensure u256 highs are zero for fixed-point math
     amount_high === 0;
     limit_high === 0;
     fee_high === 0;
 
-    // Enforce prices sum to SCALE (simple invariant)
-    price_yes + price_no === 1000000000000000000;
+    // Enforce prices sum to SCALE (simple invariant) for trades
+    (price_yes + price_no - 1000000000000000000) * is_trade === 0;
 
     // Price is accepted from signed state.
 
     // Trade constraints (exact LMSR buy/sell)
-    component eq_buy = IsEqual();
-    eq_buy.in[0] <== action;
-    eq_buy.in[1] <== 1;
-    signal is_buy;
-    is_buy <== eq_buy.out;
+    // (is_buy / is_sell / is_withdraw already derived above)
 
-    component eq_sell = IsEqual();
-    eq_sell.in[0] <== action;
-    eq_sell.in[1] <== 2;
-    signal is_sell;
-    is_sell <== eq_sell.out;
+    // Recipient must be zero for non-withdraw actions, and non-zero for withdraw.
+    recipient * (1 - is_withdraw) === 0;
+    component eq_recipient_zero = IsEqual();
+    eq_recipient_zero.in[0] <== recipient;
+    eq_recipient_zero.in[1] <== 0;
+    eq_recipient_zero.out * is_withdraw === 0;
 
     // Outcome asset id = 2 - outcome (YES->1, NO->2)
     signal outcome_asset_id;
@@ -315,21 +359,18 @@ template ShieldedTransact(DEPTH) {
 
     // Price-based buy/sell amounts
     signal price;
-    price <== outcome * price_yes + (1 - outcome) * price_no;
+    signal price_delta;
+    signal price_prod;
+    price_delta <== price_yes - price_no;
+    price_prod <== outcome * price_delta;
+    price <== price_no + price_prod;
 
-    component buy_tokens = MulDiv(128);
-    buy_tokens.a <== amount_low;
-    buy_tokens.b <== 1000000000000000000;
-    buy_tokens.denom <== price;
+    // Use exact price constraints with output amounts (avoid division gadgets).
     signal tokens_out;
-    tokens_out <== buy_tokens.q;
+    tokens_out <== out_amount1;
 
-    component sell_collateral = MulDiv(128);
-    sell_collateral.a <== amount_low;
-    sell_collateral.b <== price;
-    sell_collateral.denom <== 1000000000000000000;
     signal collateral_out;
-    collateral_out <== sell_collateral.q;
+    collateral_out <== out_amount1 + fee_low;
 
     // Enforce min output constraint depending on action
     component lt_buy = LessThan(128);
@@ -342,6 +383,15 @@ template ShieldedTransact(DEPTH) {
     lt_sell.in[1] <== limit_low;
     lt_sell.out * is_sell === 0;
 
+    // Exact price equality constraints (no rounding), gated by action.
+    signal buy_delta;
+    buy_delta <== tokens_out * price - amount_low * 1000000000000000000;
+    buy_delta * is_buy === 0;
+
+    signal sell_delta;
+    sell_delta <== collateral_out * 1000000000000000000 - amount_low * price;
+    sell_delta * is_sell === 0;
+
     // Output amounts for BUY / SELL with fee accounting
     signal in_total;
     in_total <== in_amount1 + in_amount2;
@@ -350,6 +400,32 @@ template ShieldedTransact(DEPTH) {
 
     (out_amount1 - (collateral_out - fee_low)) * is_sell === 0;
     (out_amount2 - (in_total - amount_low)) * is_sell === 0;
+
+    // DEPOSIT: no input notes, output collateral notes == amount - fee
+    in_amount1 * is_deposit === 0;
+    in_amount2 * is_deposit === 0;
+    in_asset_id1 * is_deposit === 0;
+    in_asset_id2 * is_deposit === 0;
+    in_outcome1 * is_deposit === 0;
+    in_outcome2 * is_deposit === 0;
+    out_asset_id1 * is_deposit === 0;
+    out_asset_id2 * is_deposit === 0;
+    out_outcome1 * is_deposit === 0;
+    out_outcome2 * is_deposit === 0;
+    signal out_total;
+    out_total <== out_amount1 + out_amount2;
+    (out_total - (amount_low - fee_low)) * is_deposit === 0;
+
+    // WITHDRAW: input collateral notes, output change notes == in_total - amount - fee
+    in_asset_id1 * is_withdraw === 0;
+    in_asset_id2 * is_withdraw === 0;
+    in_outcome1 * is_withdraw === 0;
+    in_outcome2 * is_withdraw === 0;
+    out_asset_id1 * is_withdraw === 0;
+    out_asset_id2 * is_withdraw === 0;
+    out_outcome1 * is_withdraw === 0;
+    out_outcome2 * is_withdraw === 0;
+    (out_total - (in_total - amount_low - fee_low)) * is_withdraw === 0;
 }
 
 component main {
@@ -368,6 +444,7 @@ component main {
         limit_high,
         relayer,
         fee_low,
-        fee_high
+        fee_high,
+        recipient
     ]
 } = ShieldedTransact(32);

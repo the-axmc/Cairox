@@ -18,6 +18,7 @@ mod LaunchConfig {
     #[storage]
     struct Storage {
         owner: felt252,
+        market_factory: felt252,
         current_phase: felt252,
         max_bet_size: u256,
         max_total_volume: u256,
@@ -111,6 +112,7 @@ mod LaunchConfig {
     fn constructor(ref self: ContractState) {
         let owner = deployer_felt();
         self.owner.write(owner);
+        self.market_factory.write(0);
         
         self.current_phase.write(PHASE_SEED);
         self.max_bet_size.write(u256 { low: 100000000000000000, high: 0 });
@@ -131,6 +133,14 @@ mod LaunchConfig {
         assert(caller == current, 'Not owner');
         self.owner.write(new_owner);
         self.emit(OwnershipTransferred { previous_owner: current, new_owner });
+    }
+
+    #[external(v0)]
+    fn set_market_factory(ref self: ContractState, factory: felt252) {
+        let current = self.owner.read();
+        let caller: felt252 = starknet::get_caller_address().into();
+        assert(caller == current, 'Not owner');
+        self.market_factory.write(factory);
     }
 
     #[external(v0)]
@@ -237,6 +247,20 @@ mod LaunchConfig {
     }
 
     #[external(v0)]
+    fn register_market(ref self: ContractState) {
+        let caller: felt252 = starknet::get_caller_address().into();
+        let owner = self.owner.read();
+        let factory = self.market_factory.read();
+        assert(caller == owner || caller == factory, 'Not authorized');
+        let max_markets = self.max_markets.read();
+        let active = self.active_market_count.read();
+        if max_markets.low != 0 || max_markets.high != 0 {
+            assert(active < max_markets, 'Max markets reached');
+        }
+        self.active_market_count.write(active + u256 { low: 1, high: 0 });
+    }
+
+    #[external(v0)]
     fn can_trade(self: @ContractState, trader: felt252) -> bool {
         let phase = self.current_phase.read();
         
@@ -257,6 +281,18 @@ mod LaunchConfig {
     }
 
     #[external(v0)]
+    fn can_create_market(self: @ContractState, creator: felt252) -> bool {
+        let max_markets = self.max_markets.read();
+        let active = self.active_market_count.read();
+        if max_markets.low != 0 || max_markets.high != 0 {
+            if active >= max_markets {
+                return false;
+            }
+        }
+        can_trade(self, creator)
+    }
+
+    #[external(v0)]
     fn get_phase(self: @ContractState) -> felt252 {
         self.current_phase.read()
     }
@@ -264,6 +300,21 @@ mod LaunchConfig {
     #[external(v0)]
     fn get_max_bet_size(self: @ContractState) -> u256 {
         self.max_bet_size.read()
+    }
+
+    #[external(v0)]
+    fn get_max_total_volume(self: @ContractState) -> u256 {
+        self.max_total_volume.read()
+    }
+
+    #[external(v0)]
+    fn get_max_markets(self: @ContractState) -> u256 {
+        self.max_markets.read()
+    }
+
+    #[external(v0)]
+    fn get_active_market_count(self: @ContractState) -> u256 {
+        self.active_market_count.read()
     }
 
     #[external(v0)]
@@ -284,6 +335,16 @@ mod LaunchConfig {
     #[external(v0)]
     fn get_total_traders(self: @ContractState) -> u256 {
         self.total_traders.read()
+    }
+
+    #[external(v0)]
+    fn is_permissionless_reporting(self: @ContractState) -> bool {
+        self.permissionless_reporting.read()
+    }
+
+    #[external(v0)]
+    fn is_dispute_enabled(self: @ContractState) -> bool {
+        self.dispute_enabled.read()
     }
 
     #[external(v0)]

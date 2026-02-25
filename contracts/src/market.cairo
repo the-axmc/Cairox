@@ -54,12 +54,26 @@ trait IOptimisticOracle<TContractState> {
     fn get_final_outcome(self: @TContractState, market_id: felt252) -> felt252;
 }
 
+#[starknet::interface]
+trait ILaunchConfig<TContractState> {
+    fn can_trade(self: @TContractState, trader: felt252) -> bool;
+    fn get_max_bet_size(self: @TContractState) -> u256;
+    fn get_max_total_volume(self: @TContractState) -> u256;
+}
+
+#[starknet::interface]
+trait ICircuitBreaker<TContractState> {
+    fn is_paused(self: @TContractState) -> bool;
+}
+
 #[starknet::contract]
 mod Market {
     use super::{
         IERC20Dispatcher, IERC20DispatcherTrait, IOutcomeTokenDispatcher, IOutcomeTokenDispatcherTrait,
         ILMSRMarketMakerDispatcher, ILMSRMarketMakerDispatcherTrait,
         IOptimisticOracleDispatcher, IOptimisticOracleDispatcherTrait,
+        ILaunchConfigDispatcher, ILaunchConfigDispatcherTrait,
+        ICircuitBreakerDispatcher, ICircuitBreakerDispatcherTrait,
     };
     use starknet::ContractAddress;
     use starknet::SyscallResultTrait;
@@ -97,6 +111,9 @@ mod Market {
         // Oracle
         oracle: ContractAddress,
         market_id: felt252,
+        launch_config: ContractAddress,
+        circuit_breaker: ContractAddress,
+        privacy_adapter: ContractAddress,
 
         // Market metadata
         question_hash: felt252,
@@ -220,6 +237,9 @@ mod Market {
         lmsr_market_maker: ContractAddress,
         b_param: u256,
         oracle: ContractAddress,
+        launch_config: ContractAddress,
+        circuit_breaker: ContractAddress,
+        privacy_adapter: ContractAddress,
         market_id: felt252
     ) {
         let caller = starknet::get_caller_address();
@@ -235,6 +255,9 @@ mod Market {
         self.lmsr_market_maker.write(lmsr_market_maker);
         self.b_param.write(b_param);
         self.oracle.write(oracle);
+        self.launch_config.write(launch_config);
+        self.circuit_breaker.write(circuit_breaker);
+        self.privacy_adapter.write(privacy_adapter);
         self.market_id.write(market_id);
         self.question_hash.write(question_hash);
         self.question_uri.write(question_uri);
@@ -318,6 +341,30 @@ mod Market {
         self.emit(LimitsUpdated { max_trade_size: max_size, min_trade_size: min_size });
     }
 
+    #[external(v0)]
+    fn set_launch_config(ref self: ContractState, launch_config: ContractAddress) {
+        let current = self.owner.read();
+        let caller = starknet::get_caller_address();
+        assert(caller == current, 'Not owner');
+        self.launch_config.write(launch_config);
+    }
+
+    #[external(v0)]
+    fn set_circuit_breaker(ref self: ContractState, circuit_breaker: ContractAddress) {
+        let current = self.owner.read();
+        let caller = starknet::get_caller_address();
+        assert(caller == current, 'Not owner');
+        self.circuit_breaker.write(circuit_breaker);
+    }
+
+    #[external(v0)]
+    fn set_privacy_adapter(ref self: ContractState, adapter: ContractAddress) {
+        let current = self.owner.read();
+        let caller = starknet::get_caller_address();
+        assert(caller == current, 'Not owner');
+        self.privacy_adapter.write(adapter);
+    }
+
     // Buy tokens
     #[external(v0)]
     fn buy(ref self: ContractState, outcome: felt252, collateral_amount: u256, min_tokens: u256) -> u256 {
@@ -328,13 +375,17 @@ mod Market {
         assert(self.status.read() == STATE_ACTIVE, 'Market not active');
         assert(outcome == OUTCOME_YES || outcome == OUTCOME_NO, 'Invalid outcome');
 
+        let buyer = starknet::get_caller_address();
+        enforce_privacy_adapter(@self, buyer);
+        enforce_circuit_breaker(@self);
+        enforce_launch_limits(@self, buyer, collateral_amount);
+
         // Check limits
         let max_size = self.max_trade_size.read();
         let min_size = self.min_trade_size.read();
         assert(collateral_amount >= min_size, 'Too small');
         assert(collateral_amount <= max_size, 'Too large');
 
-        let buyer = starknet::get_caller_address();
         let lmsr_addr = self.lmsr_market_maker.read();
         assert(!is_zero_address(lmsr_addr), 'LMSR not set');
         let lmsr = ILMSRMarketMakerDispatcher { contract_address: lmsr_addr };
@@ -397,6 +448,8 @@ mod Market {
         assert(outcome == OUTCOME_YES || outcome == OUTCOME_NO, 'Invalid outcome');
 
         let seller = starknet::get_caller_address();
+        enforce_privacy_adapter(@self, seller);
+        enforce_circuit_breaker(@self);
         let lmsr_addr = self.lmsr_market_maker.read();
         assert(!is_zero_address(lmsr_addr), 'LMSR not set');
         let lmsr = ILMSRMarketMakerDispatcher { contract_address: lmsr_addr };
@@ -408,6 +461,7 @@ mod Market {
             token_amount
         );
         assert(collateral_out >= min_collateral, 'Slippage exceeded');
+        enforce_launch_limits(@self, seller, collateral_out);
 
         // Burn outcome tokens from seller
         if outcome == OUTCOME_YES {
@@ -528,6 +582,7 @@ mod Market {
         assert(self.status.read() == STATE_RESOLVED, 'Not resolved');
 
         let user = starknet::get_caller_address();
+        enforce_privacy_adapter(@self, user);
         let winning = self.winning_outcome.read();
 
         let (token, supply) = if winning == OUTCOME_YES {
@@ -641,6 +696,21 @@ mod Market {
     }
 
     #[external(v0)]
+    fn get_launch_config(self: @ContractState) -> ContractAddress {
+        self.launch_config.read()
+    }
+
+    #[external(v0)]
+    fn get_circuit_breaker(self: @ContractState) -> ContractAddress {
+        self.circuit_breaker.read()
+    }
+
+    #[external(v0)]
+    fn get_privacy_adapter(self: @ContractState) -> ContractAddress {
+        self.privacy_adapter.read()
+    }
+
+    #[external(v0)]
     fn set_resolution_delay(ref self: ContractState, delay: u256) {
         let current = self.owner.read();
         let caller = starknet::get_caller_address();
@@ -655,6 +725,40 @@ mod Market {
         assert(caller == current, 'Not owner');
         replace_class_syscall(new_class_hash).unwrap_syscall();
         self.emit(Upgraded { class_hash: new_class_hash });
+    }
+
+    fn enforce_circuit_breaker(self: @ContractState) {
+        let breaker = self.circuit_breaker.read();
+        if !is_zero_address(breaker) {
+            let cb = ICircuitBreakerDispatcher { contract_address: breaker };
+            assert(!cb.is_paused(), 'Collateral paused');
+        }
+    }
+
+    fn enforce_launch_limits(self: @ContractState, trader: ContractAddress, collateral_amount: u256) {
+        let cfg_addr = self.launch_config.read();
+        if is_zero_address(cfg_addr) {
+            return;
+        }
+        let cfg = ILaunchConfigDispatcher { contract_address: cfg_addr };
+        let trader_felt: felt252 = trader.into();
+        assert(cfg.can_trade(trader_felt), 'Launch: not allowed');
+        let max_bet = cfg.get_max_bet_size();
+        if max_bet.low != 0 || max_bet.high != 0 {
+            assert(collateral_amount <= max_bet, 'Launch: max bet');
+        }
+        let max_vol = cfg.get_max_total_volume();
+        if max_vol.low != 0 || max_vol.high != 0 {
+            let total = self.total_volume.read();
+            assert(total + collateral_amount <= max_vol, 'Launch: max volume');
+        }
+    }
+
+    fn enforce_privacy_adapter(self: @ContractState, caller: ContractAddress) {
+        let adapter = self.privacy_adapter.read();
+        if !is_zero_address(adapter) {
+            assert(caller == adapter, 'Privacy adapter only');
+        }
     }
 
     fn is_zero_address(addr: ContractAddress) -> bool {

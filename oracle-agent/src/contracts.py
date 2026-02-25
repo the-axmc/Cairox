@@ -57,6 +57,8 @@ class StarknetInterface:
         self.starkli_keystore = os.getenv("STARKLI_KEYSTORE") or os.getenv("STARKNET_KEYSTORE")
         self.starkli_password = os.getenv("STARKLI_PASSWORD") or os.getenv("STARKNET_KEYSTORE_PASSWORD")
         self.starkli_rpc = os.getenv("STARKNET_RPC") or os.getenv("STARKNET_RPC_URL")
+        self.starkli_nonce = os.getenv("STARKLI_NONCE")
+        self.idempotent = os.getenv("ORACLE_IDEMPOTENT", "1") == "1"
         
         # Contract addresses (defaults - should be overridden)
         self.oracle_address = self._normalize_address(os.getenv("ORACLE_CONTRACT_ADDRESS"))
@@ -126,6 +128,8 @@ class StarknetInterface:
             else:
                 print("Warning: ignoring STARKLI_PASSWORD/STARKNET_KEYSTORE_PASSWORD. "
                       "Set STARKLI_ALLOW_PASSWORD_ENV=1 to allow env-based password (dev only).")
+        if self.starkli_nonce:
+            args.extend(["--nonce", self.starkli_nonce])
         args.extend(self._starkli_rpc_args())
         return args
     
@@ -237,6 +241,23 @@ class StarknetInterface:
         if isinstance(raw, str) and raw.startswith("0x"):
             return int(raw, 16)
         return int(raw)
+
+    def _status_value(self, status: Any) -> Optional[int]:
+        """Normalize market status into int if possible."""
+        if status is None:
+            return None
+        if isinstance(status, dict):
+            if "raw_value" in status:
+                return self._status_value(status.get("raw_value"))
+            if "status" in status:
+                return self._status_value(status.get("status"))
+        if isinstance(status, (list, tuple)) and len(status) > 0:
+            return self._parse_felt(status[0])
+        if isinstance(status, str):
+            return self._parse_felt(status)
+        if isinstance(status, int):
+            return status
+        return None
 
     def _extract_tx_hash(self, output: str) -> Optional[str]:
         if not output:
@@ -406,6 +427,30 @@ class StarknetInterface:
         if not self.oracle_address:
             raise ValueError("Oracle contract address not set")
         
+        if self.idempotent:
+            status = self.get_market_status(market_id)
+            status_val = self._status_value(status)
+            if status_val is not None and status_val >= 2:
+                return {
+                    "success": True,
+                    "status": "already_resolved",
+                    "transaction_hash": None,
+                }
+            if status_val is not None and status_val >= 1:
+                onchain = self.get_data_hash(market_id)
+                if onchain.get("success"):
+                    val = onchain.get("value")
+                    if isinstance(val, (list, tuple)) and len(val) > 0:
+                        val = val[0]
+                    onchain_hash = self._parse_felt(val)
+                    target_hash = self._parse_felt(data_hash)
+                    if onchain_hash == target_hash:
+                        return {
+                            "success": True,
+                            "status": "already_proposed",
+                            "transaction_hash": None,
+                        }
+
         if proof is not None:
             if self.account:
                 return self._propose_with_proof_starknet_py(market_id, outcome, data_hash, bond, proof)
@@ -424,6 +469,14 @@ class StarknetInterface:
     ) -> Dict[str, Any]:
         if not self.data_commitment_address:
             raise ValueError("Data commitment contract address not set")
+        if self.idempotent:
+            existing = self.get_commitment(market_id)
+            if existing is not None and int(existing) == int(state_hash):
+                return {
+                    "success": True,
+                    "status": "already_committed",
+                    "transaction_hash": None,
+                }
         if self.account:
             return self._set_commitment_signed_starknet_py(market_id, state_hash, sig_r, sig_s)
         return self._set_commitment_signed_starkli(market_id, state_hash, sig_r, sig_s)
@@ -673,6 +726,16 @@ class StarknetInterface:
         """
         if not self.oracle_address:
             raise ValueError("Oracle contract address not set")
+
+        if self.idempotent:
+            status = self.get_market_status(market_id)
+            status_val = self._status_value(status)
+            if status_val is not None and status_val >= 2:
+                return {
+                    "success": True,
+                    "status": "already_resolved",
+                    "transaction_hash": None,
+                }
         
         if self.account:
             return self._finalize_starknet_py(market_id)
@@ -768,6 +831,35 @@ class StarknetInterface:
             return self._get_status_starknet_py(market_id)
         else:
             return self._get_status_starkli(market_id)
+
+    def get_data_hash(self, market_id: str) -> Dict[str, Any]:
+        """Get data_hash for a market from OptimisticOracle."""
+        if not self.oracle_address:
+            raise ValueError("Oracle contract address not set")
+        if self.client:
+            try:
+                from starknet_py.contract import Contract
+                contract = Contract(
+                    address=self.oracle_address,
+                    abi=self._get_oracle_abi(),
+                    client=self.client
+                )
+                value = asyncio.run(
+                    contract.functions["get_data_hash"].call(self._market_id_to_felt(market_id))
+                )
+                return {"success": True, "value": value, "raw_value": value}
+            except Exception as e:
+                return {"success": False, "error": str(e)}
+        try:
+            output = self._call_starkli([
+                "call",
+                self._addr_str(self.oracle_address),
+                "get_data_hash",
+                str(self._market_id_to_felt(market_id)),
+            ] + self._starkli_rpc_args())
+            return {"success": True, "value": self._parse_starkli_felt(output)}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
     def get_commitment(self, market_id: str) -> Optional[int]:
         """Get committed data hash from DataCommitment."""

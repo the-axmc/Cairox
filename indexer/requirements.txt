@@ -3,7 +3,6 @@
 
 # Web3/Starknet
 starknet-py>=0.20.0
-starkli>=0.2.0
 
 # HTTP requests and API clients
 requests>=2.31.0

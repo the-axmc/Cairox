@@ -56,6 +56,9 @@ mod Stablecoin {
         max_price_age: u256,
         min_price: u256,
         max_price: u256,
+        supply_cap: u256,
+        emergency_redeem_enabled: bool,
+        emergency_redeem_price: u256,
         total_supply: u256,
         balances: Map<ContractAddress, u256>,
         allowances: Map<(ContractAddress, ContractAddress), u256>,
@@ -81,6 +84,10 @@ mod Stablecoin {
         PriceFeedSet: PriceFeedSet,
         MaxPriceAgeSet: MaxPriceAgeSet,
         PriceBoundsSet: PriceBoundsSet,
+        SupplyCapSet: SupplyCapSet,
+        EmergencyRedeemEnabled: EmergencyRedeemEnabled,
+        EmergencyRedeemDisabled: EmergencyRedeemDisabled,
+        EmergencyRedeemed: EmergencyRedeemed,
         OwnershipTransferred: OwnershipTransferred,
         Upgraded: Upgraded,
     }
@@ -165,6 +172,28 @@ mod Stablecoin {
     }
 
     #[derive(Copy, Drop, starknet::Event)]
+    struct SupplyCapSet {
+        cap: u256,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct EmergencyRedeemEnabled {
+        price: u256,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct EmergencyRedeemDisabled {}
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct EmergencyRedeemed {
+        #[key]
+        user: ContractAddress,
+        amount: u256,
+        collateral_out: u256,
+        price: u256,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
     struct OwnershipTransferred {
         #[key]
         previous_owner: ContractAddress,
@@ -208,6 +237,9 @@ mod Stablecoin {
         self.max_price_age.write(u256 { low: 3600, high: 0 });
         self.min_price.write(u256 { low: 0, high: 0 });
         self.max_price.write(u256 { low: 0, high: 0 });
+        self.supply_cap.write(u256 { low: 0, high: 0 });
+        self.emergency_redeem_enabled.write(false);
+        self.emergency_redeem_price.write(u256 { low: 0, high: 0 });
         self.total_supply.write(u256 { low: 0, high: 0 });
     }
 
@@ -383,6 +415,43 @@ mod Stablecoin {
     }
 
     #[external(v0)]
+    fn set_supply_cap(ref self: ContractState, cap: u256) {
+        let caller = starknet::get_caller_address();
+        let owner = self.owner.read();
+        assert(caller == owner, 'Not owner');
+        self.supply_cap.write(cap);
+        self.emit(SupplyCapSet { cap });
+    }
+
+    #[external(v0)]
+    fn enable_emergency_redeem(ref self: ContractState, price: u256) {
+        let caller = starknet::get_caller_address();
+        let owner = self.owner.read();
+        assert(caller == owner, 'Not owner');
+        if is_zero_u256(price) {
+            assert(self.price_locked.read(), 'No locked price');
+            let locked = self.locked_price.read();
+            assert(!is_zero_u256(locked), 'No locked price');
+            self.emergency_redeem_price.write(locked);
+            self.emit(EmergencyRedeemEnabled { price: locked });
+        } else {
+            self.emergency_redeem_price.write(price);
+            self.emit(EmergencyRedeemEnabled { price });
+        }
+        self.emergency_redeem_enabled.write(true);
+    }
+
+    #[external(v0)]
+    fn disable_emergency_redeem(ref self: ContractState) {
+        let caller = starknet::get_caller_address();
+        let owner = self.owner.read();
+        assert(caller == owner, 'Not owner');
+        self.emergency_redeem_enabled.write(false);
+        self.emergency_redeem_price.write(u256 { low: 0, high: 0 });
+        self.emit(EmergencyRedeemDisabled {});
+    }
+
+    #[external(v0)]
     fn pause(ref self: ContractState) {
         let caller = starknet::get_caller_address();
         let owner = self.owner.read();
@@ -422,6 +491,28 @@ mod Stablecoin {
     }
 
     #[external(v0)]
+    fn emergency_redeem(ref self: ContractState, amount: u256) -> u256 {
+        assert(self.emergency_redeem_enabled.read(), 'Emergency redeem disabled');
+        assert(!is_zero_u256(amount), 'Zero amount');
+        let caller = starknet::get_caller_address();
+        let price = self.emergency_redeem_price.read();
+        assert(!is_zero_u256(price), 'No emergency price');
+        let collateral_out = stable_to_collateral_with_price(@self, amount, price);
+        burn_internal(ref self, caller, amount);
+        let token = IERC20Dispatcher { contract_address: self.collateral_token.read() };
+        let ok = token.transfer(caller, collateral_out);
+        assert(ok, 'Collateral transfer failed');
+        self.emit(CollateralWithdrawn { to: caller, amount: collateral_out });
+        self.emit(EmergencyRedeemed {
+            user: caller,
+            amount,
+            collateral_out,
+            price
+        });
+        collateral_out
+    }
+
+    #[external(v0)]
     fn get_price_feed(self: @ContractState) -> ContractAddress {
         self.price_feed.read()
     }
@@ -444,6 +535,21 @@ mod Stablecoin {
     #[external(v0)]
     fn get_price_bounds(self: @ContractState) -> (u256, u256) {
         (self.min_price.read(), self.max_price.read())
+    }
+
+    #[external(v0)]
+    fn get_supply_cap(self: @ContractState) -> u256 {
+        self.supply_cap.read()
+    }
+
+    #[external(v0)]
+    fn is_emergency_redeem_enabled(self: @ContractState) -> bool {
+        self.emergency_redeem_enabled.read()
+    }
+
+    #[external(v0)]
+    fn get_emergency_redeem_price(self: @ContractState) -> u256 {
+        self.emergency_redeem_price.read()
     }
 
     #[external(v0)]
@@ -502,6 +608,10 @@ mod Stablecoin {
 
     fn mint_internal(ref self: ContractState, to: ContractAddress, amount: u256) {
         let supply = self.total_supply.read();
+        let cap = self.supply_cap.read();
+        if !is_zero_u256(cap) {
+            assert(supply + amount <= cap, 'Supply cap exceeded');
+        }
         self.total_supply.write(supply + amount);
         let balance = self.balances.read(to);
         self.balances.write(to, balance + amount);
@@ -575,8 +685,13 @@ mod Stablecoin {
     }
 
     fn stable_to_collateral(self: @ContractState, amount: u256) -> u256 {
+        let price = fetch_price(self);
+        stable_to_collateral_with_price(self, amount, price)
+    }
+
+    fn stable_to_collateral_with_price(self: @ContractState, amount: u256, price: u256) -> u256 {
         let amount_u = u256_to_u128(amount);
-        let price_u = u256_to_u128(fetch_price(self));
+        let price_u = u256_to_u128(price);
         assert(price_u > 0, 'Invalid price');
         let price_dec = get_price_decimals(self);
         let collateral_dec = self.collateral_decimals.read();

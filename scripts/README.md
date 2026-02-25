@@ -69,3 +69,21 @@ End-to-end flow that creates a market, buys YES, resolves via OptimisticOracle, 
 ```bash
 python3 scripts/e2e_resolution_payout.py --rpc-url $STARKNET_RPC_URL
 ```
+
+## relayer_transact.py
+
+Relayer helper for ShieldedPool deposit/withdraw flows. It loads public inputs and proof calldata,
+validates the 16-input layout, and submits `ShieldedPool.transact` via `starkli`.
+
+### Usage
+
+```bash
+python3 scripts/relayer_transact.py \
+  --pool $SHIELDED_POOL_ADDRESS \
+  --public-inputs zk/build/public.json \
+  --proof zk/build/proof.calldata \
+  --action deposit \
+  --account ~/.starkli-wallets/deployer/account.json \
+  --keystore ~/.starkli-wallets/deployer/keystore.json \
+  --rpc $STARKNET_RPC_URL
+```

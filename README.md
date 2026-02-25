@@ -19,7 +19,12 @@ Cairox is a prediction market protocol built on Starknet that allows users to tr
 
 ## Overview
 
-Cairox enables permissionless prediction markets for Starknet ecosystem metrics:
+Cairox enables permissionless prediction markets for Starknet ecosystem metrics.
+
+**V1 Privacy Model**
+- Users deposit **USDC** into the ShieldedPool and receive **private Cairox notes** (1:1 backed by USDC).
+- All bets are executed via ZK proofs; on-chain trades are attributed to the pool, not user addresses.
+- Withdrawals use ZK proofs and are paid out to fresh addresses or relayers.
 
 - **Binary Markets** - YES/NO outcomes (e.g., "Will Starknet exceed 1M DAU?")
 - **Categorical Markets** - Multiple outcomes (e.g., "Which L2 will have highest TVL?")

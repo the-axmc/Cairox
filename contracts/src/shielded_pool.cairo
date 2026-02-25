@@ -5,6 +5,12 @@ use starknet::ContractAddress;
 #[starknet::interface]
 trait IERC20<TContractState> {
     fn transfer(ref self: TContractState, to: ContractAddress, amount: u256) -> bool;
+    fn transfer_from(
+        ref self: TContractState,
+        from: ContractAddress,
+        to: ContractAddress,
+        amount: u256
+    ) -> bool;
 }
 
 #[starknet::interface]
@@ -52,6 +58,8 @@ mod ShieldedPool {
     const ACTION_BUY: felt252 = 1;
     const ACTION_SELL: felt252 = 2;
     const ACTION_REDEEM: felt252 = 3;
+    const ACTION_DEPOSIT: felt252 = 4;
+    const ACTION_WITHDRAW: felt252 = 5;
 
     #[storage]
     struct Storage {
@@ -72,6 +80,8 @@ mod ShieldedPool {
         RootUpdated: RootUpdated,
         NullifierUsed: NullifierUsed,
         ActionExecuted: ActionExecuted,
+        Deposited: Deposited,
+        Withdrawn: Withdrawn,
         Upgraded: Upgraded,
     }
 
@@ -95,6 +105,20 @@ mod ShieldedPool {
         action: felt252,
         #[key]
         market_id: felt252,
+        amount: u256,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct Deposited {
+        #[key]
+        relayer: ContractAddress,
+        amount: u256,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct Withdrawn {
+        #[key]
+        recipient: ContractAddress,
         amount: u256,
     }
 
@@ -175,6 +199,7 @@ mod ShieldedPool {
         amount: u256,
         limit: u256,
         relayer: ContractAddress,
+        recipient: ContractAddress,
         relayer_fee: u256,
         proof: Span<felt252>
     ) -> bool {
@@ -195,8 +220,9 @@ mod ShieldedPool {
 
         // Expect fixed public inputs layout:
         // [old_root, new_root, nullifier1, nullifier2, market_state_hash, action, market_id, outcome,
-        //  amount_low, amount_high, limit_low, limit_high, relayer, fee_low, fee_high]
-        assert(inputs.len() == 15, 'Invalid public inputs');
+        //  amount_low, amount_high, limit_low, limit_high, relayer, fee_low, fee_high, recipient]
+        // recipient should be zero for non-withdraw actions.
+        assert(inputs.len() == 16, 'Invalid public inputs');
         assert(*inputs.at(0) == old_root.into(), 'Input root mismatch');
         assert(*inputs.at(1) == new_root.into(), 'Input root mismatch');
         assert(*inputs.at(4) == market_state_hash.into(), 'State hash mismatch');
@@ -212,6 +238,12 @@ mod ShieldedPool {
         assert(*inputs.at(12) == relayer_u, 'Relayer mismatch');
         assert(*inputs.at(13) == relayer_fee.low.into(), 'Fee mismatch');
         assert(*inputs.at(14) == relayer_fee.high.into(), 'Fee mismatch');
+        let recipient_felt: felt252 = recipient.into();
+        let recipient_u = u256_from_felt252(recipient_felt);
+        assert(*inputs.at(15) == recipient_u, 'Recipient mismatch');
+        if action != ACTION_WITHDRAW {
+            assert(recipient_felt == 0, 'Recipient must be zero');
+        }
 
         // Validate and mark nullifiers (fixed to 2 for now).
         assert(nullifiers.len() == 2, 'Invalid nullifiers');
@@ -228,30 +260,53 @@ mod ShieldedPool {
         self.merkle_root.write(new_root);
         self.emit(RootUpdated { old_root, new_root });
 
-        // Check committed market state hash if configured.
-        let commitment_addr = self.data_commitment.read();
-        if !is_zero_address(commitment_addr) {
-            let commitment = IDataCommitmentDispatcher { contract_address: commitment_addr };
-            let expected = commitment.get_commitment(market_id);
-            assert(expected != 0, 'No commitment');
-            assert(expected == market_state_hash, 'State commitment mismatch');
+        // Check committed market state hash if configured (trade actions only).
+        if action == ACTION_BUY || action == ACTION_SELL || action == ACTION_REDEEM {
+            let commitment_addr = self.data_commitment.read();
+            if !is_zero_address(commitment_addr) {
+                let commitment = IDataCommitmentDispatcher { contract_address: commitment_addr };
+                let expected = commitment.get_commitment(market_id);
+                assert(expected != 0, 'No commitment');
+                assert(expected == market_state_hash, 'State commitment mismatch');
+            }
         }
 
         // Execute market action as the pool.
         if action != ACTION_NONE {
-            let market_addr = self.markets.read(market_id);
-            assert(!is_zero_address(market_addr), 'Market not set');
-            let market = IMarketDispatcher { contract_address: market_addr };
-            if action == ACTION_BUY {
-                market.buy(outcome, amount, limit);
-            } else if action == ACTION_SELL {
-                market.sell(outcome, amount, limit);
-            } else if action == ACTION_REDEEM {
-                market.redeem();
+            if action == ACTION_DEPOSIT {
+                let token = self.collateral_token.read();
+                let erc20 = IERC20Dispatcher { contract_address: token };
+                let caller = starknet::get_caller_address();
+                assert(!is_zero_u256(amount), 'Zero amount');
+                assert(amount >= relayer_fee, 'Fee too large');
+                let ok = erc20.transfer_from(caller, starknet::get_contract_address(), amount);
+                assert(ok, 'Deposit failed');
+                self.emit(Deposited { relayer: caller, amount });
+            } else if action == ACTION_WITHDRAW {
+                assert(!is_zero_u256(amount), 'Zero amount');
+                assert(amount >= relayer_fee, 'Fee too large');
+                assert(!is_zero_address(recipient), 'Zero recipient');
+                let token = self.collateral_token.read();
+                let erc20 = IERC20Dispatcher { contract_address: token };
+                let to_user = amount - relayer_fee;
+                let ok = erc20.transfer(recipient, to_user);
+                assert(ok, 'Withdraw failed');
+                self.emit(Withdrawn { recipient, amount: to_user });
             } else {
-                assert(false, 'Invalid action');
+                let market_addr = self.markets.read(market_id);
+                assert(!is_zero_address(market_addr), 'Market not set');
+                let market = IMarketDispatcher { contract_address: market_addr };
+                if action == ACTION_BUY {
+                    market.buy(outcome, amount, limit);
+                } else if action == ACTION_SELL {
+                    market.sell(outcome, amount, limit);
+                } else if action == ACTION_REDEEM {
+                    market.redeem();
+                } else {
+                    assert(false, 'Invalid action');
+                }
+                self.emit(ActionExecuted { action, market_id, amount });
             }
-            self.emit(ActionExecuted { action, market_id, amount });
         }
 
         // Pay relayer fee (from pool collateral balance).

@@ -9,7 +9,7 @@ The Cairox Indexer is an off-chain service that computes sentiment metrics for p
 - **Metrics Computation**: Compute probability, liquidity, and volatility from on-chain events
 - **ZK Integrity Proofs**: Generate verifiable proofs that metrics were computed correctly
 - **Daily Commitments**: Anchor daily snapshots on-chain via commitment hashes
-- **Event Subscription**: Subscribe to Starknet events using starknet.py (with fallback for development)
+- **Event Indexing**: Pulls on-chain events via JSON-RPC and persists to SQLite
 
 ## Installation
 
@@ -23,7 +23,7 @@ source venv/bin/activate
 # Install dependencies
 pip install -r requirements.txt
 
-# For Starknet integration
+# For selector hashing
 pip install starknet-py
 ```
 
@@ -53,44 +53,33 @@ indexer/
 ```python
 from indexer import CairoxIndexer
 
-# Initialize indexer
-indexer = CairoxIndexer(network="goerli")
+# Initialize indexer (RPC URL required)
+indexer = CairoxIndexer(rpc_url="https://…")
 
-# Subscribe to events
-asyncio.run(indexer.subscribe_to_events())
-
-# Compute metrics for a market
-metrics = indexer.compute_metrics("market-id")
-
-# Generate ZK proof
-proof = indexer.generate_proof("market-id", metrics)
-
-# Verify proof
-is_valid, message = indexer.verify_proof(proof)
+# Index once (range)
+indexer.index_range(from_block=0, to_block=1000)
 ```
 
-### Daily Commitments
+### Environment Variables
 
-```python
-from indexer import CairoxIndexer
-
-indexer = CairoxIndexer(network="goerli")
-
-# Create daily commitment for a market
-commitment = indexer.daily_commitment("market-id", date="2024-01-15")
+```
+INDEXER_RPC_URL           # Starknet RPC
+INDEXER_DB_PATH           # SQLite DB path
+MARKET_FACTORY_ADDRESS
+OPTIMISTIC_ORACLE_ADDRESS
+DATA_COMMITMENT_ADDRESS
+PRICE_ORACLE_ADDRESS
+MARKET_ADDRESSES_JSON     # optional JSON list or map of market addresses
 ```
 
 ### Command Line
 
 ```bash
-# Build index from scratch
-python src/indexer.py --rebuild
+# Index once
+python src/indexer.py --once --from-block 0
 
-# Run daily commitments
-python src/indexer.py --daily --market btc-binary-2024
-
-# Start event subscription
-python src/indexer.py --network goerli
+# Follow head
+python src/indexer.py
 ```
 
 ## Metrics
