@@ -7,6 +7,9 @@ mod LaunchConfig {
     use starknet::storage::StoragePointerReadAccess;
     use starknet::storage::StoragePointerWriteAccess;
     use starknet::ContractAddress;
+    use starknet::SyscallResultTrait;
+    use starknet::class_hash::ClassHash;
+    use starknet::syscalls::replace_class_syscall;
 
     const PHASE_SEED: felt252 = 1;
     const PHASE_CONTROLLED: felt252 = 2;
@@ -29,6 +32,81 @@ mod LaunchConfig {
         total_traders: u256,
     }
 
+    #[event]
+    #[derive(Drop, starknet::Event)]
+    enum Event {
+        OwnershipTransferred: OwnershipTransferred,
+        PhaseSet: PhaseSet,
+        LimitsSet: LimitsSet,
+        AllowlistToggled: AllowlistToggled,
+        TraderAllowed: TraderAllowed,
+        TraderRemoved: TraderRemoved,
+        LpAllowed: LpAllowed,
+        LpRemoved: LpRemoved,
+        PermissionlessReportingEnabled: PermissionlessReportingEnabled,
+        DisputesEnabled: DisputesEnabled,
+        Upgraded: Upgraded,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct OwnershipTransferred {
+        #[key]
+        previous_owner: felt252,
+        #[key]
+        new_owner: felt252,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct PhaseSet {
+        phase: felt252,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct LimitsSet {
+        max_bet: u256,
+        max_volume: u256,
+        b_param: u256,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct AllowlistToggled {
+        enabled: bool,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct TraderAllowed {
+        #[key]
+        trader: felt252,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct TraderRemoved {
+        #[key]
+        trader: felt252,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct LpAllowed {
+        #[key]
+        lp: felt252,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct LpRemoved {
+        #[key]
+        lp: felt252,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct PermissionlessReportingEnabled {}
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct DisputesEnabled {}
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct Upgraded {
+        class_hash: ClassHash,
+    }
     #[constructor]
     fn constructor(ref self: ContractState) {
         let owner = deployer_felt();
@@ -52,6 +130,7 @@ mod LaunchConfig {
         let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
         self.owner.write(new_owner);
+        self.emit(OwnershipTransferred { previous_owner: current, new_owner });
     }
 
     #[external(v0)]
@@ -60,6 +139,7 @@ mod LaunchConfig {
         let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
         self.current_phase.write(phase);
+        self.emit(PhaseSet { phase });
     }
 
     #[external(v0)]
@@ -68,6 +148,7 @@ mod LaunchConfig {
         let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
         self.current_phase.write(PHASE_CONTROLLED);
+        self.emit(PhaseSet { phase: PHASE_CONTROLLED });
     }
 
     #[external(v0)]
@@ -76,6 +157,7 @@ mod LaunchConfig {
         let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
         self.current_phase.write(PHASE_OPEN);
+        self.emit(PhaseSet { phase: PHASE_OPEN });
     }
 
     #[external(v0)]
@@ -86,6 +168,7 @@ mod LaunchConfig {
         self.max_bet_size.write(max_bet);
         self.max_total_volume.write(max_volume);
         self.b_parameter.write(b);
+        self.emit(LimitsSet { max_bet, max_volume, b_param: b });
     }
 
     #[external(v0)]
@@ -94,6 +177,7 @@ mod LaunchConfig {
         let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
         self.allowed_lps.write(lp, 1);
+        self.emit(LpAllowed { lp });
     }
 
     #[external(v0)]
@@ -102,6 +186,7 @@ mod LaunchConfig {
         let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
         self.allowed_lps.write(lp, 0);
+        self.emit(LpRemoved { lp });
     }
 
     #[external(v0)]
@@ -112,6 +197,7 @@ mod LaunchConfig {
         self.allowed_traders.write(trader, 1);
         let count = self.total_traders.read();
         self.total_traders.write(count + u256 { low: 1, high: 0 });
+        self.emit(TraderAllowed { trader });
     }
 
     #[external(v0)]
@@ -120,6 +206,7 @@ mod LaunchConfig {
         let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
         self.allowed_traders.write(trader, 0);
+        self.emit(TraderRemoved { trader });
     }
 
     #[external(v0)]
@@ -128,6 +215,7 @@ mod LaunchConfig {
         let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
         self.allowlist_enabled.write(enabled);
+        self.emit(AllowlistToggled { enabled });
     }
 
     #[external(v0)]
@@ -136,6 +224,7 @@ mod LaunchConfig {
         let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
         self.permissionless_reporting.write(true);
+        self.emit(PermissionlessReportingEnabled {});
     }
 
     #[external(v0)]
@@ -144,6 +233,7 @@ mod LaunchConfig {
         let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
         self.dispute_enabled.write(true);
+        self.emit(DisputesEnabled {});
     }
 
     #[external(v0)]
@@ -194,6 +284,15 @@ mod LaunchConfig {
     #[external(v0)]
     fn get_total_traders(self: @ContractState) -> u256 {
         self.total_traders.read()
+    }
+
+    #[external(v0)]
+    fn upgrade(ref self: ContractState, new_class_hash: ClassHash) {
+        let current = self.owner.read();
+        let caller: felt252 = starknet::get_caller_address().into();
+        assert(caller == current, 'Not owner');
+        replace_class_syscall(new_class_hash).unwrap_syscall();
+        self.emit(Upgraded { class_hash: new_class_hash });
     }
 
     fn is_zero_address(addr: ContractAddress) -> bool {

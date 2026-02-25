@@ -1,7 +1,7 @@
 // Tests for Cairox Market Contract
 // Tests minting complete sets, redemption, and insolvency prevention
 
-use snforge::test;
+use snforge_std::test;
 use starknet::ContractAddress;
 use starknet::cast::cast_felt;
 use openzeppelin::math::u256 as u256_lib;
@@ -58,7 +58,8 @@ fn oracle_address() -> ContractAddress {
 fn test_mint_complete_set() {
     // Setup: Initialize market
     let mut market = Market::constructor(
-        question: 'Q1',
+        question_hash: 'Q1',
+        question_uri: 0,
         collateral_token: collateral_token_address(),
         yes_token: yes_token_address(),
         no_token: no_token_address(),
@@ -101,7 +102,8 @@ fn test_mint_complete_set() {
 fn test_redeem_winning() {
     // Setup: Create market and mint complete set
     let mut market = Market::constructor(
-        question: 'Q2',
+        question_hash: 'Q2',
+        question_uri: 0,
         collateral_token: collateral_token_address(),
         yes_token: yes_token_address(),
         no_token: no_token_address(),
@@ -130,7 +132,8 @@ fn test_redeem_winning() {
 fn test_redeem_void() {
     // Setup: Create market and mint complete set
     let mut market = Market::constructor(
-        question: 'Q3',
+        question_hash: 'Q3',
+        question_uri: 0,
         collateral_token: collateral_token_address(),
         yes_token: yes_token_address(),
         no_token: no_token_address(),
@@ -158,7 +161,8 @@ fn test_insolvency_prevention() {
     
     // Setup
     let mut market = Market::constructor(
-        question: 'Q4',
+        question_hash: 'Q4',
+        question_uri: 0,
         collateral_token: collateral_token_address(),
         yes_token: yes_token_address(),
         no_token: no_token_address(),
@@ -190,7 +194,8 @@ fn test_multiple_users() {
     
     // Setup
     let mut market = Market::constructor(
-        question: 'Q5',
+        question_hash: 'Q5',
+        question_uri: 0,
         collateral_token: collateral_token_address(),
         yes_token: yes_token_address(),
         no_token: no_token_address(),
@@ -217,7 +222,8 @@ fn test_outcome_token_balance() {
     // Test that outcome tokens track balances correctly
     
     let mut market = Market::constructor(
-        question: 'Q6',
+        question_hash: 'Q6',
+        question_uri: 0,
         collateral_token: collateral_token_address(),
         yes_token: yes_token_address(),
         no_token: no_token_address(),
@@ -246,7 +252,8 @@ fn test_cannot_redeem_before_resolution() {
     // Test that users cannot redeem winning tokens before resolution
     
     let mut market = Market::constructor(
-        question: 'Q7',
+        question_hash: 'Q7',
+        question_uri: 0,
         collateral_token: collateral_token_address(),
         yes_token: yes_token_address(),
         no_token: no_token_address(),
@@ -270,7 +277,8 @@ fn test_cannot_redeem_before_void() {
     // Test that users cannot redeem void before market is voided
     
     let mut market = Market::constructor(
-        question: 'Q8',
+        question_hash: 'Q8',
+        question_uri: 0,
         collateral_token: collateral_token_address(),
         yes_token: yes_token_address(),
         no_token: no_token_address(),

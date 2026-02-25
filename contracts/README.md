@@ -15,20 +15,16 @@ contracts/
 │   ├── market_factory.cairo
 │   ├── collateral_vault.cairo
 │   ├── outcome_token.cairo
-│   ├── oracle.cairo
 │   ├── optimistic_oracle.cairo
 │   ├── price_oracle.cairo
 │   ├── lmsr_market_maker.cairo
-│   ├── lmsr_multi.cairo
 │   ├── arbitration.cairo
 │   ├── resolution_verifier.cairo
 │   ├── launch_config.cairo
 │   ├── stablecoin.cairo
-│   ├── dummy_market.cairo
-│   └── dummy_oracle.cairo
+│   └── shielded_pool.cairo
 └── tests/
-    ├── contracts/               # Test helpers
-    └── test_cairox.cairo         # Main test entry
+    └── contracts/               # Test helpers
 ```
 
 ## Dependencies

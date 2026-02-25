@@ -79,12 +79,13 @@ class OracleAgent:
     
     def _load_market_specs(self) -> Dict[str, Dict]:
         """
-        Load market specifications from specs/markets.json.
+        Load market specifications from repo-root/specs/markets.json.
         
         Returns:
             Dictionary of market_id -> market specification
         """
-        specs_path = Path(__file__).parent.parent / "specs" / "markets.json"
+        # Canonical specs live at repo-root/specs/markets.json
+        specs_path = Path(__file__).resolve().parents[2] / "specs" / "markets.json"
         
         if specs_path.exists():
             try:
@@ -187,7 +188,7 @@ class OracleAgent:
 
         if self.require_signed and self.starknet.account is None:
             print("Error: Signed submissions required, but no account is configured")
-            print("Set STARKNET_ACCOUNT_ADDRESS and STARKNET_PRIVATE_KEY,")
+            print("Set STARKNET_ACCOUNT_ADDRESS and STARKLI_ACCOUNT/STARKLI_KEYSTORE,")
             print("or set ORACLE_REQUIRE_SIGNED=0 to allow starkli fallback.")
             return None
         

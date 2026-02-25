@@ -7,6 +7,9 @@ mod Arbitration {
     use starknet::storage::StoragePointerReadAccess;
     use starknet::storage::StoragePointerWriteAccess;
     use starknet::ContractAddress;
+    use starknet::SyscallResultTrait;
+    use starknet::class_hash::ClassHash;
+    use starknet::syscalls::replace_class_syscall;
 
     const STATUS_PENDING: felt252 = 0;
     const STATUS_RESOLVED: felt252 = 1;
@@ -30,6 +33,55 @@ mod Arbitration {
         rejected_disputes: u256,
     }
 
+    #[event]
+    #[derive(Drop, starknet::Event)]
+    enum Event {
+        OwnershipTransferred: OwnershipTransferred,
+        DisputeRaised: DisputeRaised,
+        DisputeResolved: DisputeResolved,
+        DisputeRejected: DisputeRejected,
+        MinDisputeIntervalSet: MinDisputeIntervalSet,
+        Upgraded: Upgraded,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct OwnershipTransferred {
+        #[key]
+        previous_owner: felt252,
+        #[key]
+        new_owner: felt252,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct DisputeRaised {
+        #[key]
+        market: felt252,
+        reason: felt252,
+        raised_at: u256,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct DisputeResolved {
+        #[key]
+        market: felt252,
+        outcome: felt252,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct DisputeRejected {
+        #[key]
+        market: felt252,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct MinDisputeIntervalSet {
+        interval: u256,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct Upgraded {
+        class_hash: ClassHash,
+    }
     #[constructor]
     fn constructor(ref self: ContractState) {
         let owner = deployer_felt();
@@ -46,6 +98,7 @@ mod Arbitration {
         let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
         self.owner.write(new_owner);
+        self.emit(OwnershipTransferred { previous_owner: current, new_owner });
     }
 
     #[external(v0)]
@@ -54,6 +107,7 @@ mod Arbitration {
         let caller: felt252 = starknet::get_caller_address().into();
         assert(caller == current, 'Not owner');
         self.min_dispute_interval.write(interval);
+        self.emit(MinDisputeIntervalSet { interval });
     }
 
     // Raise dispute
@@ -69,6 +123,7 @@ mod Arbitration {
         
         let now: u256 = starknet::get_block_timestamp().into();
         self.last_dispute_time.write(market, now);
+        self.emit(DisputeRaised { market, reason, raised_at: now });
     }
 
     // Resolve dispute
@@ -85,6 +140,7 @@ mod Arbitration {
         
         let resolved = self.resolved_disputes.read();
         self.resolved_disputes.write(resolved + u256 { low: 1, high: 0 });
+        self.emit(DisputeResolved { market, outcome });
     }
 
     // Reject dispute
@@ -100,6 +156,7 @@ mod Arbitration {
         
         let rejected = self.rejected_disputes.read();
         self.rejected_disputes.write(rejected + u256 { low: 1, high: 0 });
+        self.emit(DisputeRejected { market });
     }
 
     // Getters
@@ -126,6 +183,15 @@ mod Arbitration {
     #[external(v0)]
     fn get_rejected_disputes(self: @ContractState) -> u256 {
         self.rejected_disputes.read()
+    }
+
+    #[external(v0)]
+    fn upgrade(ref self: ContractState, new_class_hash: ClassHash) {
+        let current = self.owner.read();
+        let caller: felt252 = starknet::get_caller_address().into();
+        assert(caller == current, 'Not owner');
+        replace_class_syscall(new_class_hash).unwrap_syscall();
+        self.emit(Upgraded { class_hash: new_class_hash });
     }
 
     fn is_zero_address(addr: ContractAddress) -> bool {

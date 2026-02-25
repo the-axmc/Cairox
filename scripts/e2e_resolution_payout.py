@@ -47,7 +47,8 @@ def to_u256(value: int) -> Dict:
 def get_factory_abi() -> List[Dict]:
     return [
         {"name": "create_market", "inputs": [
-            {"name": "question", "type": "felt"},
+            {"name": "question_hash", "type": "felt"},
+            {"name": "question_uri", "type": "felt"},
             {"name": "initial_subsidy", "type": "u256"},
         ], "type": "function", "outputs": [{"name": "market_id", "type": "u256"}]},
         {"name": "get_market_count", "inputs": [], "type": "function", "outputs": [{"name": "count", "type": "u256"}]},
@@ -157,7 +158,8 @@ async def main():
     await wait_for_tx(client, subsidy_approve_tx.transaction_hash)
 
     tx = await factory.functions["create_market"].invoke(
-        question=question,
+        question_hash=question,
+        question_uri=0,
         initial_subsidy=to_u256(args.initial_subsidy),
         max_fee=int(1e17)
     )

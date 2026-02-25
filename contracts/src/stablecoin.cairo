@@ -33,9 +33,12 @@ mod Stablecoin {
         IChainlinkAggregatorDispatcher, IChainlinkAggregatorDispatcherTrait,
         IPriceOracleDispatcher, IPriceOracleDispatcherTrait,
     };
+    use starknet::SyscallResultTrait;
+    use starknet::class_hash::ClassHash;
     use starknet::storage::Map;
     use starknet::storage::StoragePointerReadAccess;
     use starknet::storage::StoragePointerWriteAccess;
+    use starknet::syscalls::replace_class_syscall;
 
     #[storage]
     struct Storage {
@@ -49,6 +52,10 @@ mod Stablecoin {
         collateral_decimals: u8,
         price_locked: bool,
         locked_price: u256,
+        paused: bool,
+        max_price_age: u256,
+        min_price: u256,
+        max_price: u256,
         total_supply: u256,
         balances: Map<ContractAddress, u256>,
         allowances: Map<(ContractAddress, ContractAddress), u256>,
@@ -69,6 +76,13 @@ mod Stablecoin {
         CollateralWithdrawn: CollateralWithdrawn,
         PriceLocked: PriceLocked,
         PriceUnlocked: PriceUnlocked,
+        Paused: Paused,
+        Unpaused: Unpaused,
+        PriceFeedSet: PriceFeedSet,
+        MaxPriceAgeSet: MaxPriceAgeSet,
+        PriceBoundsSet: PriceBoundsSet,
+        OwnershipTransferred: OwnershipTransferred,
+        Upgraded: Upgraded,
     }
 
     #[derive(Copy, Drop, starknet::Event)]
@@ -127,6 +141,42 @@ mod Stablecoin {
     #[derive(Copy, Drop, starknet::Event)]
     struct PriceUnlocked {}
 
+    #[derive(Copy, Drop, starknet::Event)]
+    struct Paused {}
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct Unpaused {}
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct PriceFeedSet {
+        feed: ContractAddress,
+        feed_type: u8,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct MaxPriceAgeSet {
+        max_age: u256,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct PriceBoundsSet {
+        min_price: u256,
+        max_price: u256,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct OwnershipTransferred {
+        #[key]
+        previous_owner: ContractAddress,
+        #[key]
+        new_owner: ContractAddress,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct Upgraded {
+        class_hash: ClassHash,
+    }
+
     #[constructor]
     fn constructor(
         ref self: ContractState,
@@ -154,6 +204,10 @@ mod Stablecoin {
         self.price_feed_type.write(price_feed_type);
         self.price_locked.write(false);
         self.locked_price.write(u256 { low: 0, high: 0 });
+        self.paused.write(false);
+        self.max_price_age.write(u256 { low: 3600, high: 0 });
+        self.min_price.write(u256 { low: 0, high: 0 });
+        self.max_price.write(u256 { low: 0, high: 0 });
         self.total_supply.write(u256 { low: 0, high: 0 });
     }
 
@@ -197,6 +251,7 @@ mod Stablecoin {
 
     #[external(v0)]
     fn transfer(ref self: ContractState, to: ContractAddress, amount: u256) -> bool {
+        assert(!self.paused.read(), 'Paused');
         let from = starknet::get_caller_address();
         let balance = self.balances.read(from);
         assert(balance >= amount, 'Insufficient balance');
@@ -215,6 +270,7 @@ mod Stablecoin {
         to: ContractAddress,
         amount: u256
     ) -> bool {
+        assert(!self.paused.read(), 'Paused');
         let spender = starknet::get_caller_address();
         let allowance = self.allowances.read((from, spender));
         assert(allowance >= amount, 'Allowance exceeded');
@@ -234,6 +290,7 @@ mod Stablecoin {
     // Deposit collateral and mint stablecoin at oracle price.
     #[external(v0)]
     fn deposit_collateral(ref self: ContractState, amount: u256) -> u256 {
+        assert(!self.paused.read(), 'Paused');
         assert(!is_zero_u256(amount), 'Zero amount');
         let caller = starknet::get_caller_address();
         let token = IERC20Dispatcher { contract_address: self.collateral_token.read() };
@@ -251,6 +308,7 @@ mod Stablecoin {
     // Burn stablecoin and withdraw collateral at oracle price.
     #[external(v0)]
     fn redeem(ref self: ContractState, amount: u256) -> u256 {
+        assert(!self.paused.read(), 'Paused');
         assert(!is_zero_u256(amount), 'Zero amount');
         let caller = starknet::get_caller_address();
         let collateral_out = stable_to_collateral(@self, amount);
@@ -270,11 +328,21 @@ mod Stablecoin {
         let owner = self.owner.read();
         assert(caller == owner, 'Not owner');
         self.owner.write(new_owner);
+        self.emit(OwnershipTransferred { previous_owner: owner, new_owner });
     }
 
     #[external(v0)]
     fn get_owner(self: @ContractState) -> ContractAddress {
         self.owner.read()
+    }
+
+    #[external(v0)]
+    fn upgrade(ref self: ContractState, new_class_hash: ClassHash) {
+        let caller = starknet::get_caller_address();
+        let owner = self.owner.read();
+        assert(caller == owner, 'Not owner');
+        replace_class_syscall(new_class_hash).unwrap_syscall();
+        self.emit(Upgraded { class_hash: new_class_hash });
     }
 
     #[external(v0)]
@@ -286,8 +354,50 @@ mod Stablecoin {
             feed_type == PRICE_FEED_CHAINLINK || feed_type == PRICE_FEED_ORACLE,
             'Invalid feed type'
         );
+        assert(!is_zero_address(feed), 'Invalid feed');
         self.price_feed.write(feed);
         self.price_feed_type.write(feed_type);
+        self.emit(PriceFeedSet { feed, feed_type });
+    }
+
+    #[external(v0)]
+    fn set_max_price_age(ref self: ContractState, max_age: u256) {
+        let caller = starknet::get_caller_address();
+        let owner = self.owner.read();
+        assert(caller == owner, 'Not owner');
+        self.max_price_age.write(max_age);
+        self.emit(MaxPriceAgeSet { max_age });
+    }
+
+    #[external(v0)]
+    fn set_price_bounds(ref self: ContractState, min_price: u256, max_price: u256) {
+        let caller = starknet::get_caller_address();
+        let owner = self.owner.read();
+        assert(caller == owner, 'Not owner');
+        if !is_zero_u256(min_price) && !is_zero_u256(max_price) {
+            assert(max_price >= min_price, 'Invalid bounds');
+        }
+        self.min_price.write(min_price);
+        self.max_price.write(max_price);
+        self.emit(PriceBoundsSet { min_price, max_price });
+    }
+
+    #[external(v0)]
+    fn pause(ref self: ContractState) {
+        let caller = starknet::get_caller_address();
+        let owner = self.owner.read();
+        assert(caller == owner, 'Not owner');
+        self.paused.write(true);
+        self.emit(Paused {});
+    }
+
+    #[external(v0)]
+    fn unpause(ref self: ContractState) {
+        let caller = starknet::get_caller_address();
+        let owner = self.owner.read();
+        assert(caller == owner, 'Not owner');
+        self.paused.write(false);
+        self.emit(Unpaused {});
     }
 
     #[external(v0)]
@@ -319,6 +429,21 @@ mod Stablecoin {
     #[external(v0)]
     fn get_price_feed_type(self: @ContractState) -> u8 {
         self.price_feed_type.read()
+    }
+
+    #[external(v0)]
+    fn is_paused(self: @ContractState) -> bool {
+        self.paused.read()
+    }
+
+    #[external(v0)]
+    fn get_max_price_age(self: @ContractState) -> u256 {
+        self.max_price_age.read()
+    }
+
+    #[external(v0)]
+    fn get_price_bounds(self: @ContractState) -> (u256, u256) {
+        (self.min_price.read(), self.max_price.read())
     }
 
     #[external(v0)]
@@ -401,13 +526,33 @@ mod Stablecoin {
             return locked;
         }
         let feed_type = self.price_feed_type.read();
+        let now: u256 = starknet::get_block_timestamp().into();
+        let updated_at = if feed_type == PRICE_FEED_CHAINLINK {
+            let aggregator = IChainlinkAggregatorDispatcher { contract_address: feed };
+            let (_, _, _, updated, _) = aggregator.latest_round_data();
+            updated
+        } else {
+            let oracle = IPriceOracleDispatcher { contract_address: feed };
+            oracle.get_updated_at()
+        };
+        let max_age = self.max_price_age.read();
+        if !is_zero_u256(max_age) {
+            let now_u = u256_to_u128(now);
+            let updated_u = u256_to_u128(updated_at);
+            let max_u = u256_to_u128(max_age);
+            assert(now_u >= updated_u, 'Invalid timestamp');
+            assert(now_u - updated_u <= max_u, 'Stale price');
+        }
         if feed_type == PRICE_FEED_CHAINLINK {
             let aggregator = IChainlinkAggregatorDispatcher { contract_address: feed };
             let (_, answer, _, _, _) = aggregator.latest_round_data();
+            enforce_price_bounds(self, answer);
             answer
         } else {
             let oracle = IPriceOracleDispatcher { contract_address: feed };
-            oracle.get_price()
+            let price = oracle.get_price();
+            enforce_price_bounds(self, price);
+            price
         }
     }
 
@@ -484,5 +629,16 @@ mod Stablecoin {
 
     fn is_zero_u256(value: u256) -> bool {
         value.low == 0 && value.high == 0
+    }
+
+    fn enforce_price_bounds(self: @ContractState, price: u256) {
+        let min_p = self.min_price.read();
+        let max_p = self.max_price.read();
+        if !is_zero_u256(min_p) {
+            assert(price >= min_p, 'Price too low');
+        }
+        if !is_zero_u256(max_p) {
+            assert(price <= max_p, 'Price too high');
+        }
     }
 }

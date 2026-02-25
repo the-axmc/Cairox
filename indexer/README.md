@@ -191,7 +191,9 @@ Set environment variables:
 ```bash
 export STARKNET_NETWORK=goerli
 export STARKNET_ACCOUNT_ADDRESS=0x...
-export STARKNET_PRIVATE_KEY=0x...
+# Avoid raw private keys in env for production. Use a keystore + remote signer.
+export STARKLI_ACCOUNT=~/.starkli-wallets/deployer/account.json
+export STARKLI_KEYSTORE=~/.starkli-wallets/deployer/keystore.json
 export ORACLE_CONTRACT_ADDRESS=0x...
 export PROOF_DIRECTORY=./proofs
 ```

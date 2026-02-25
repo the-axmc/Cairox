@@ -120,12 +120,20 @@ class StarknetInterface:
         if self.starkli_keystore:
             args.extend(["--keystore", self.starkli_keystore])
         if self.starkli_password:
-            args.extend(["--keystore-password", self.starkli_password])
+            allow = os.getenv("STARKLI_ALLOW_PASSWORD_ENV") == "1" or os.getenv("ORACLE_ALLOW_PASSWORD_ENV") == "1"
+            if allow:
+                args.extend(["--keystore-password", self.starkli_password])
+            else:
+                print("Warning: ignoring STARKLI_PASSWORD/STARKNET_KEYSTORE_PASSWORD. "
+                      "Set STARKLI_ALLOW_PASSWORD_ENV=1 to allow env-based password (dev only).")
         args.extend(self._starkli_rpc_args())
         return args
     
     def _get_chain_id(self) -> str:
         """Get chain ID based on network."""
+        env_chain = os.getenv("STARKNET_CHAIN_ID")
+        if env_chain:
+            return env_chain
         chain_ids = {
             "goerli": "SN_GOERLI",
             "mainnet": "SN_MAIN",

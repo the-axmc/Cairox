@@ -173,19 +173,15 @@ Cairox/
 │   │   ├── market_factory.cairo
 │   │   ├── collateral_vault.cairo
 │   │   ├── outcome_token.cairo
-│   │   ├── oracle.cairo
 │   │   ├── data_commitment.cairo
 │   │   ├── optimistic_oracle.cairo
 │   │   ├── price_oracle.cairo
 │   │   ├── lmsr_market_maker.cairo
-│   │   ├── lmsr_multi.cairo
 │   │   ├── shielded_pool.cairo
 │   │   ├── arbitration.cairo
 │   │   ├── resolution_verifier.cairo
 │   │   ├── launch_config.cairo
-│   │   ├── stablecoin.cairo
-│   │   ├── dummy_market.cairo
-│   │   └── dummy_oracle.cairo
+│   │   └── stablecoin.cairo
 │   └── tests/             # Integration tests
 │       ├── contracts/
 │       └── test_cairox.cairo
@@ -196,7 +192,6 @@ Cairox/
 │   │   ├── resolver.py    # Resolution logic
 │   │   └── contracts.py   # Starknet bindings
 │   ├── scripts/
-│   ├── specs/
 │   └── requirements.txt
 ├── indexer/               # Off-chain event indexer
 │   ├── src/
@@ -314,6 +309,7 @@ Workflow runs on:
 - [Deployment Guide](docs/DEPLOYMENT.md) - Testnet and mainnet deployment
 - [Invariant Specs](docs/INVARIANTS.md) - Protocol invariants
 - [Threat Model](docs/THREAT_MODEL.md) - Security considerations
+- [Governance & Upgrades](docs/GOVERNANCE.md) - Upgrade path and admin policy
 
 ## License
 

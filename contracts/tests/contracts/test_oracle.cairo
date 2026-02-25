@@ -1,4 +1,4 @@
-use snforge::test;
+use snforge_std::test;
 use starknet::ContractAddress;
 use cairox_contracts::OptimisticOracle;
 use openzeppelin::math::u256 as u256_lib;

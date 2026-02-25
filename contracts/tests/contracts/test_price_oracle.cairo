@@ -1,6 +1,6 @@
 // PriceOracle Tests
 
-use snforge::test;
+use snforge_std::test;
 use starknet::ContractAddress;
 use openzeppelin::math::u256 as u256_lib;
 use cairox_contracts::PriceOracle;

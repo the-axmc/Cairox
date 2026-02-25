@@ -1,27 +1,34 @@
 {
-  "version": "0.2.0",
-  "cairo_version": "2.8.0",
-  "devnet": {
-    "url": "http://127.0.0.1:5050",
-    "chain_id": "SN_GOERLI",
-    "reset_on_deploy": true,
-    "account_path": "devnet/account.json",
-    "private_key_env": "DEVNET_PRIVATE_KEY"
-  },
-  "deployments": {
-    "local": {
-      "contract_name": "DummyMarket",
-      "class_hash_env": "DUMMY_CLASS_HASH"
+  "version": "0.3.0",
+  "cairo_version": "2.13.1",
+  "networks": {
+    "devnet": {
+      "url": "http://127.0.0.1:5050",
+      "chain_id": "SN_DEVNET",
+      "reset_on_deploy": true
     },
-    "testnet": {
-      "contract_name": "CairoxMarket",
-      "class_hash_env": "CAIROX_CLASS_HASH"
+    "sepolia": {
+      "rpc_env": "STARKNET_RPC_URL",
+      "chain_id": "SN_SEPOLIA"
     }
+  },
+  "contracts": {
+    "PriceOracle": { "class_hash_env": "PRICE_ORACLE_CLASS_HASH" },
+    "Stablecoin": { "class_hash_env": "STABLECOIN_CLASS_HASH" },
+    "DataCommitment": { "class_hash_env": "DATA_COMMITMENT_CLASS_HASH" },
+    "ResolutionVerifier": { "class_hash_env": "RESOLUTION_VERIFIER_CLASS_HASH" },
+    "OptimisticOracle": { "class_hash_env": "OPTIMISTIC_ORACLE_CLASS_HASH" },
+    "LMSRMarketMaker": { "class_hash_env": "LMSR_CLASS_HASH" },
+    "OutcomeToken": { "class_hash_env": "OUTCOME_TOKEN_CLASS_HASH" },
+    "Market": { "class_hash_env": "MARKET_CLASS_HASH" },
+    "MarketFactory": { "class_hash_env": "MARKET_FACTORY_CLASS_HASH" },
+    "CollateralVault": { "class_hash_env": "COLLATERAL_VAULT_CLASS_HASH" },
+    "ShieldedPool": { "class_hash_env": "SHIELDED_POOL_CLASS_HASH" }
   },
   "accounts": {
     "deployer": {
-      "private_key_env": "DEPLOYER_PRIVATE_KEY",
-      "account_contract_env": "DEPLOYER_ACCOUNT"
+      "account_env": "STARKLI_ACCOUNT",
+      "keystore_env": "STARKLI_KEYSTORE"
     }
   }
 }

@@ -217,7 +217,8 @@ class E2ETestnetRunner:
         """Get MarketFactory ABI."""
         return [
             {"name": "create_market", "inputs": [
-                {"name": "question", "type": "felt"},
+                {"name": "question_hash", "type": "felt"},
+                {"name": "question_uri", "type": "felt"},
                 {"name": "initial_subsidy", "type": "u256"}
             ], "type": "function", "outputs": [
                 {"name": "market_id", "type": "u256"}
@@ -338,7 +339,8 @@ class E2ETestnetRunner:
                     print(f"  ⚠ Failed to approve subsidy: {e}")
 
             result = await self.market_factory.functions["create_market"].invoke(
-                question=question,
+                question_hash=question,
+                question_uri=0,
                 initial_subsidy=self._to_u256(self.initial_subsidy),
                 max_fee=int(1e17)
             )

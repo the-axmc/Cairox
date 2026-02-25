@@ -1,11 +1,14 @@
 // Stablecoin Tests for Cairox
 
-use snforge::test;
+use snforge_std::test;
 use starknet::ContractAddress;
+use starknet::contract_address_const;
 use openzeppelin::math::u256 as u256_lib;
 use cairox_contracts::Stablecoin;
-use core::option::OptionTrait;
+use cairox_contracts::price_oracle::{IContractDispatcher, IContractDispatcherTrait};
+use core::array::{Array, ArrayTrait};
 use core::traits::TryInto;
+use core::option::OptionTrait;
 
 fn owner_address() -> ContractAddress {
     addr(0x111111111111111111111111111111111111111111111111111111111111111_u128)
@@ -35,115 +38,149 @@ fn u256_value(amount: u128) -> u256_lib::U256 {
     u256_lib::U256 { low: amount, high: 0 }
 }
 
+fn deploy_price_oracle(decimals: u8, price: u128) -> ContractAddress {
+    let mut calldata: Array<felt252> = ArrayTrait::new();
+    calldata.append(decimals.into());
+    calldata.append(price.into());
+    calldata.append(0);
+    starknet::deploy_syscall(
+        'price_oracle',
+        calldata.span(),
+        0,
+        false
+    )
+    .unwrap()
+    .assert()
+}
+
+fn dummy_collateral_token() -> ContractAddress {
+    contract_address_const::<0xdead>()
+}
+
 #[test]
 fn test_constructor_and_metadata() {
     let owner = owner_address();
-    let recipient = user_address();
+    let price_feed = deploy_price_oracle(6, 1_000_000);
     let token = Stablecoin::constructor(
-        name: 'cEUR',
-        symbol: 'cEUR',
+        name: 'cUSD',
+        symbol: 'cUSD',
         decimals: 6,
         owner: owner,
-        initial_supply: u256_value(1_000_000),
-        recipient: recipient,
-        price_feed: zero_address(),
+        collateral_token: dummy_collateral_token(),
+        collateral_decimals: 6,
+        price_feed: price_feed,
         price_feed_type: price_feed_type_oracle()
     );
 
-    assert(token.name() == 'cEUR', 'Name should match');
-    assert(token.symbol() == 'cEUR', 'Symbol should match');
+    assert(token.name() == 'cUSD', 'Name should match');
+    assert(token.symbol() == 'cUSD', 'Symbol should match');
     assert(token.decimals() == 6, 'Decimals should match');
-
-    let balance = token.balance_of(account: recipient);
-    assert(balance.low == 1_000_000, 'Recipient should get initial supply');
+    assert(token.get_owner() == owner, 'Owner should be set');
 }
 
 #[test]
-fn test_owner_can_mint_and_burn() {
+fn test_approve_sets_allowance() {
     let owner = owner_address();
-    let recipient = user_address();
+    let price_feed = deploy_price_oracle(6, 1_000_000);
     let mut token = Stablecoin::constructor(
-        name: 'cEUR',
-        symbol: 'cEUR',
+        name: 'cUSD',
+        symbol: 'cUSD',
         decimals: 6,
         owner: owner,
-        initial_supply: u256_value(0),
-        recipient: recipient,
-        price_feed: zero_address(),
+        collateral_token: dummy_collateral_token(),
+        collateral_decimals: 6,
+        price_feed: price_feed,
         price_feed_type: price_feed_type_oracle()
     );
 
-    // Mint as owner
+    let spender = other_address();
     starknet::set_caller_address(owner);
-    token.mint(to: recipient, amount: u256_value(100));
-    let balance = token.balance_of(account: recipient);
-    assert(balance.low == 100, 'Mint should credit balance');
-
-    // Burn as owner
-    token.burn(from: recipient, amount: u256_value(40));
-    let balance_after = token.balance_of(account: recipient);
-    assert(balance_after.low == 60, 'Burn should reduce balance');
+    token.approve(spender: spender, amount: u256_value(123));
+    let allowance = token.allowance(owner: owner, spender: spender);
+    assert(allowance.low == 123, 'Allowance should be set');
 }
 
 #[test]
-fn test_transfer_and_transfer_from() {
+#[should_revert]
+fn test_pause_blocks_deposit() {
     let owner = owner_address();
-    let recipient = user_address();
+    let price_feed = deploy_price_oracle(6, 1_000_000);
     let mut token = Stablecoin::constructor(
-        name: 'cEUR',
-        symbol: 'cEUR',
+        name: 'cUSD',
+        symbol: 'cUSD',
         decimals: 6,
         owner: owner,
-        initial_supply: u256_value(100),
-        recipient: recipient,
-        price_feed: zero_address(),
+        collateral_token: dummy_collateral_token(),
+        collateral_decimals: 6,
+        price_feed: price_feed,
         price_feed_type: price_feed_type_oracle()
     );
 
-    // Transfer from recipient to other
-    let user = user_address();
-    starknet::set_caller_address(user);
-    let ok = token.transfer(to: other_address(), amount: u256_value(30));
-    assert(ok, 'Transfer should succeed');
-
-    let user_balance = token.balance_of(account: user_address());
-    let other_balance = token.balance_of(account: other_address());
-    assert(user_balance.low == 70, 'User balance should be 70');
-    assert(other_balance.low == 30, 'Other balance should be 30');
-
-    // Approve and transfer_from
-    token.approve(spender: owner_address(), amount: u256_value(20));
-    let owner = owner_address();
     starknet::set_caller_address(owner);
-    let ok_from = token.transfer_from(
-        from: user_address(),
-        to: other_address(),
-        amount: u256_value(20)
-    );
-    assert(ok_from, 'Transfer from should succeed');
-
-    let user_balance_after = token.balance_of(account: user_address());
-    let other_balance_after = token.balance_of(account: other_address());
-    assert(user_balance_after.low == 50, 'User balance should be 50');
-    assert(other_balance_after.low == 50, 'Other balance should be 50');
+    token.pause();
+    // Should revert before touching collateral token
+    token.deposit_collateral(amount: u256_value(1));
 }
 
 #[test]
 #[should_revert]
 fn test_price_feed_required() {
     let owner = owner_address();
-    let recipient = user_address();
     let token = Stablecoin::constructor(
-        name: 'cEUR',
-        symbol: 'cEUR',
+        name: 'cUSD',
+        symbol: 'cUSD',
         decimals: 6,
         owner: owner,
-        initial_supply: u256_value(0),
-        recipient: recipient,
+        collateral_token: dummy_collateral_token(),
+        collateral_decimals: 6,
         price_feed: zero_address(),
         price_feed_type: price_feed_type_oracle()
     );
 
     // Should revert because no price feed is configured
+    token.get_latest_price();
+}
+
+#[test]
+#[should_revert]
+fn test_stale_price_reverts() {
+    let owner = owner_address();
+    let price_feed = deploy_price_oracle(6, 1_000_000);
+    let mut token = Stablecoin::constructor(
+        name: 'cUSD',
+        symbol: 'cUSD',
+        decimals: 6,
+        owner: owner,
+        collateral_token: dummy_collateral_token(),
+        collateral_decimals: 6,
+        price_feed: price_feed,
+        price_feed_type: price_feed_type_oracle()
+    );
+    // Set tight max age and simulate stale data
+    starknet::set_caller_address(owner);
+    token.set_max_price_age(max_age: u256_value(1));
+    starknet::set_block_timestamp(1000);
+    // Price updated_at set at deployment (timestamp 0), so now it is stale.
+    token.get_latest_price();
+}
+
+#[test]
+#[should_revert]
+fn test_price_bounds_reverts() {
+    let owner = owner_address();
+    let price_feed = deploy_price_oracle(6, 1_000_000);
+    let mut token = Stablecoin::constructor(
+        name: 'cUSD',
+        symbol: 'cUSD',
+        decimals: 6,
+        owner: owner,
+        collateral_token: dummy_collateral_token(),
+        collateral_decimals: 6,
+        price_feed: price_feed,
+        price_feed_type: price_feed_type_oracle()
+    );
+    // Set min bound above current price
+    starknet::set_caller_address(owner);
+    token.set_price_bounds(min_price: u256_value(2_000_000), max_price: u256_value(0));
     token.get_latest_price();
 }

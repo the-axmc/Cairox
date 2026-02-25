@@ -43,9 +43,14 @@ curl https://get.starkli.sh | sh
 Set environment variables for Starknet interaction:
 
 ```bash
-export STARKNET_NETWORK=goerli
+export STARKNET_NETWORK=sepolia
 export STARKNET_ACCOUNT_ADDRESS=0x...
-export STARKNET_PRIVATE_KEY=0x...
+# Prefer keystore + signer (production). Avoid raw private keys in env.
+export STARKLI_ACCOUNT=~/.starkli-wallets/deployer/account.json
+export STARKLI_KEYSTORE=~/.starkli-wallets/deployer/keystore.json
+# Only for dev: allow passing keystore password via env
+export STARKLI_ALLOW_PASSWORD_ENV=0
+export STARKNET_KEYSTORE_PASSWORD=
 export ORACLE_CONTRACT_ADDRESS=0x...
 export RESOLUTION_VERIFIER_ADDRESS=0x...
 export ORACLE_PROPOSER_BOND=100
@@ -61,7 +66,8 @@ export ZK_VERIFIER_ADDRESS=0x...
 export ORACLE_ZK_PROOF_PATH=
 export ORACLE_ZK_PROOF_DIR=
 export ORACLE_ZK_PUBLIC_INPUTS_PATH=
-export STARKNET_RPC_URL=https://starknet-sepolia.public.blastapi.io/rpc/v0_8
+export STARKNET_RPC_URL=https://starknet-sepolia.g.alchemy.com/starknet/version/rpc/v0_8/REPLACE_ME
+export STARKNET_CHAIN_ID=SN_SEPOLIA
 export GROWTH_API_URL=https://api.growthepie.com
 ```
 
@@ -76,6 +82,7 @@ Signed attestation mode (no ZK):
 - Set `set_requires_proof(market_id, true)` so `propose_with_proof` is required.
 - The agent will submit `proof=[data_hash_felt, sig_r, sig_s]` and on-chain signature verification
   will be enforced.
+  Signatures are domain-separated with chain id and verifier contract address.
 
 If you have a deployed Groth16 BN254 verifier (Garaga), wire it in:
 
@@ -103,11 +110,12 @@ to `DataCommitment` before proposing. It resolves the market address in this ord
 3. `ORACLE_MARKET_ADDRESS` fallback
 
 The market state hash is Poseidon(yes_supply, no_supply, b_param, price_yes, price_no, timestamp).
-The signature uses `pedersen(pedersen(market_id, hash), 'MSTATE')`.
+The signature uses domain separation:
+`pedersen(pedersen(market_id, hash), pedersen('MSTATE', chain_id, data_commitment_address))`.
 
 ## Market Specifications
 
-Create `specs/markets.json` with your market definitions:
+Create `specs/markets.json` at the **repo root** (one canonical file):
 
 ```json
 {
@@ -210,15 +218,18 @@ oracle-agent/
 │   └── contracts.py      # Starknet contract interaction
 ├── scripts/
 │   └── run_market.py     # CLI to run a single market
-├── specs/
-│   └── markets.json      # Market specifications (create this)
 ├── requirements.txt
 └── README.md
 ```
 
+Canonical market specs live at:
+```
+../specs/markets.json
+```
+
 ## Example: BTC TVL Binary Market
 
-1. **Market Spec** (`specs/markets.json`):
+1. **Market Spec** (`../specs/markets.json`):
 ```json
 {
   "btc-tvl-2024-01": {
@@ -232,7 +243,7 @@ oracle-agent/
 }
 ```
 
-2. **Run the agent**:
+2. **Run the agent** (from `oracle-agent/`):
 ```bash
 python scripts/run_market.py btc-tvl-2024-01 --propose
 ```

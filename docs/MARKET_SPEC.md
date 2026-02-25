@@ -12,6 +12,8 @@
 - `min_trade_size`: Minimum trade allowed
 - `max_trade_size`: Maximum trade allowed
 - `resolution_delay`: Time before resolution allowed
+- `question_hash`: Felt252 hash of the full question (required for long questions)
+- `question_uri`: Optional felt pointer/short URI for off-chain metadata
 - `market_address` (optional): On-chain Market address used by the oracle agent for automatic state commitments
 
 ### Lifecycle

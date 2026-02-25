@@ -266,7 +266,55 @@ class MarketResolver:
         return int.from_bytes(str(market_id).encode()[:31], "big")
 
     def _state_domain(self) -> int:
-        return int.from_bytes("MSTATE".encode(), "big")
+        domain = int.from_bytes("MSTATE".encode(), "big")
+        chain_id = self._chain_id_felt()
+        commitment_addr = self._contract_address_felt("DATA_COMMITMENT_ADDRESS")
+        if commitment_addr == 0:
+            raise RuntimeError("DATA_COMMITMENT_ADDRESS is required for market state signing")
+        if pedersen_hash is None:
+            raise RuntimeError("pedersen_hash not available. Install starknet-py.")
+        acc = pedersen_hash(domain, chain_id)
+        return pedersen_hash(acc, commitment_addr)
+
+    def _resolve_domain(self) -> int:
+        domain = int.from_bytes("RESOLVE".encode(), "big")
+        chain_id = self._chain_id_felt()
+        verifier_addr = self._contract_address_felt("RESOLUTION_VERIFIER_ADDRESS")
+        if verifier_addr == 0:
+            raise RuntimeError("RESOLUTION_VERIFIER_ADDRESS is required for resolution signing")
+        if pedersen_hash is None:
+            raise RuntimeError("pedersen_hash not available. Install starknet-py.")
+        acc = pedersen_hash(domain, chain_id)
+        return pedersen_hash(acc, verifier_addr)
+
+    def _contract_address_felt(self, env_key: str) -> int:
+        value = os.getenv(env_key, "0x0")
+        if isinstance(value, str) and value.startswith("0x"):
+            return int(value, 16)
+        if isinstance(value, str) and value.isdigit():
+            return int(value)
+        try:
+            return int(value)
+        except Exception:
+            return 0
+
+    def _chain_id_felt(self) -> int:
+        env = os.getenv("STARKNET_CHAIN_ID")
+        if env:
+            if env.startswith("0x"):
+                return int(env, 16)
+            if env.isdigit():
+                return int(env)
+            return int.from_bytes(env.encode(), "big")
+        network = os.getenv("STARKNET_NETWORK", "sepolia").lower()
+        mapping = {
+            "sepolia": "SN_SEPOLIA",
+            "mainnet": "SN_MAIN",
+            "goerli": "SN_GOERLI",
+            "localhost": "SN_LOCAL",
+        }
+        chain = mapping.get(network, "SN_SEPOLIA")
+        return int.from_bytes(chain.encode(), "big")
 
     def _poseidon_hash_values(self, values: List[int]) -> int:
         if poseidon_hash_many is not None:
@@ -328,7 +376,8 @@ class MarketResolver:
         outcome_felt = self._outcome_to_felt(outcome)
         data_hash_felt = int(data_hash, 16) if isinstance(data_hash, str) else int(data_hash)
         acc = pedersen_hash(market_id_felt, outcome_felt)
-        return pedersen_hash(acc, data_hash_felt)
+        acc = pedersen_hash(acc, data_hash_felt)
+        return pedersen_hash(acc, self._resolve_domain())
 
     def _parse_int_list(self, data: Any) -> List[int]:
         if isinstance(data, str):

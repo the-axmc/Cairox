@@ -4,10 +4,13 @@ use starknet::ContractAddress;
 
 #[starknet::contract]
 mod OutcomeToken {
+    use starknet::SyscallResultTrait;
+    use starknet::class_hash::ClassHash;
     use starknet::storage::Map;
     use starknet::storage::StoragePointerReadAccess;
     use starknet::storage::StoragePointerWriteAccess;
     use starknet::ContractAddress;
+    use starknet::syscalls::replace_class_syscall;
 
     #[storage]
     struct Storage {
@@ -35,6 +38,7 @@ mod OutcomeToken {
         Transfer: Transfer,
         Approval: Approval,
         OwnershipTransferred: OwnershipTransferred,
+        Upgraded: Upgraded,
     }
 
     #[derive(Copy, Drop, starknet::Event)]
@@ -61,6 +65,11 @@ mod OutcomeToken {
         previous_owner: ContractAddress,
         #[key]
         new_owner: ContractAddress,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct Upgraded {
+        class_hash: ClassHash,
     }
 
     #[external(v0)]
@@ -168,6 +177,15 @@ mod OutcomeToken {
     #[external(v0)]
     fn symbol(self: @ContractState) -> felt252 {
         self.symbol.read()
+    }
+
+    #[external(v0)]
+    fn upgrade(ref self: ContractState, new_class_hash: ClassHash) {
+        let caller: ContractAddress = starknet::get_caller_address();
+        let owner = self.owner.read();
+        assert(caller == owner, 'Not owner');
+        replace_class_syscall(new_class_hash).unwrap_syscall();
+        self.emit(Upgraded { class_hash: new_class_hash });
     }
 
     fn zero_address() -> ContractAddress {

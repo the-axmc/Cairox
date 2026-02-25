@@ -34,6 +34,11 @@ mod ResolutionVerifier {
     use starknet::storage::Map;
     use starknet::storage::StoragePointerReadAccess;
     use starknet::storage::StoragePointerWriteAccess;
+    use starknet::SyscallResultTrait;
+    use starknet::class_hash::ClassHash;
+    use starknet::syscalls::replace_class_syscall;
+
+    const DOMAIN: felt252 = 'RESOLVE';
 
     #[storage]
     struct Storage {
@@ -45,6 +50,49 @@ mod ResolutionVerifier {
         verified_at: Map<felt252, u256>,
         proof_hash: Map<felt252, felt252>,
         requires_proof: Map<felt252, u8>,
+    }
+
+    #[event]
+    #[derive(Drop, starknet::Event)]
+    enum Event {
+        OracleSet: OracleSet,
+        SignerSet: SignerSet,
+        ZkVerifierSet: ZkVerifierSet,
+        ProofVerified: ProofVerified,
+        Upgraded: Upgraded,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct OracleSet {
+        #[key]
+        oracle: ContractAddress,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct SignerSet {
+        #[key]
+        pubkey: felt252,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct ZkVerifierSet {
+        #[key]
+        verifier: ContractAddress,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct ProofVerified {
+        #[key]
+        market_id: felt252,
+        outcome: felt252,
+        data_hash: felt252,
+        proof_hash: felt252,
+        verified_at: u256,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct Upgraded {
+        class_hash: ClassHash,
     }
 
     #[constructor]
@@ -62,6 +110,7 @@ mod ResolutionVerifier {
         let owner = self.owner.read();
         assert(caller == owner, 'Not owner');
         self.oracle.write(oracle);
+        self.emit(OracleSet { oracle });
     }
 
     #[external(v0)]
@@ -70,6 +119,7 @@ mod ResolutionVerifier {
         let owner = self.owner.read();
         assert(caller == owner, 'Not owner');
         self.signer_pubkey.write(pubkey);
+        self.emit(SignerSet { pubkey });
     }
 
     #[external(v0)]
@@ -83,6 +133,7 @@ mod ResolutionVerifier {
         let owner = self.owner.read();
         assert(caller == owner, 'Not owner');
         self.zk_verifier.write(verifier);
+        self.emit(ZkVerifierSet { verifier });
     }
 
     #[external(v0)]
@@ -151,6 +202,13 @@ mod ResolutionVerifier {
         self.verified_outcome.write(market_id, outcome);
         let timestamp: u256 = starknet::get_block_timestamp().into();
         self.verified_at.write(market_id, timestamp);
+        self.emit(ProofVerified {
+            market_id,
+            outcome,
+            data_hash: expected_hash,
+            proof_hash: hash,
+            verified_at: timestamp
+        });
         true
     }
 
@@ -172,6 +230,15 @@ mod ResolutionVerifier {
     #[external(v0)]
     fn is_verified(self: @ContractState, market: felt252) -> bool {
         self.proof_hash.read(market) != 0
+    }
+
+    #[external(v0)]
+    fn upgrade(ref self: ContractState, new_class_hash: ClassHash) {
+        let caller = starknet::get_caller_address();
+        let owner = self.owner.read();
+        assert(caller == owner, 'Not owner');
+        replace_class_syscall(new_class_hash).unwrap_syscall();
+        self.emit(Upgraded { class_hash: new_class_hash });
     }
 
     fn hash_proof(market_id: felt252, outcome: felt252, proof: Span<felt252>) -> felt252 {
@@ -202,7 +269,16 @@ mod ResolutionVerifier {
 
     fn message_hash(market_id: felt252, outcome: felt252, data_hash: felt252) -> felt252 {
         let acc = pedersen(market_id, outcome);
-        pedersen(acc, data_hash)
+        let acc = pedersen(acc, data_hash);
+        pedersen(acc, domain_separator())
+    }
+
+    fn domain_separator() -> felt252 {
+        let tx_info = starknet::get_tx_info().unbox();
+        let chain_id = tx_info.chain_id;
+        let addr: felt252 = starknet::get_contract_address().into();
+        let acc = pedersen(DOMAIN, chain_id);
+        pedersen(acc, addr)
     }
 
     fn is_zero_address(addr: ContractAddress) -> bool {

@@ -117,6 +117,15 @@
       "description": "On-chain Market contract address (hex string)",
       "type": "string",
       "pattern": "^0x[0-9a-fA-F]{1,64}$"
+    },
+    "question_hash": {
+      "description": "Felt252 hash of the full question (hex string)",
+      "type": "string",
+      "pattern": "^0x[0-9a-fA-F]{1,64}$"
+    },
+    "question_uri": {
+      "description": "Optional URI or short pointer to off-chain metadata",
+      "type": "string"
     }
   },
   "additionalProperties": false

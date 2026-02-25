@@ -1,0 +1,10 @@
+mod dummy;
+mod test_cairox;
+mod test_collateral_vault;
+mod test_lmsr;
+mod test_market;
+mod test_oracle;
+mod test_outcome_token;
+mod test_price_oracle;
+mod test_proof_verification;
+mod test_stablecoin;

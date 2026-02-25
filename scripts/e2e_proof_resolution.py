@@ -61,8 +61,19 @@ def build_stub_proof(market_id: int, outcome: int, data_hash: int) -> list:
     if priv:
         try:
             from starknet_py.utils.crypto.signature import sign as starknet_sign
+            chain_id = os.getenv("STARKNET_CHAIN_ID", "SN_GOERLI")
+            if chain_id.startswith("0x"):
+                chain_id_felt = int(chain_id, 16)
+            else:
+                chain_id_felt = int.from_bytes(chain_id.encode(), "big")
+            verifier_addr = os.getenv("RESOLUTION_VERIFIER_ADDRESS", "0x0")
+            verifier_felt = int(verifier_addr, 16) if verifier_addr.startswith("0x") else int(verifier_addr)
+            domain = int.from_bytes("RESOLVE".encode(), "big")
+            domain = pedersen_hash(domain, chain_id_felt)
+            domain = pedersen_hash(domain, verifier_felt)
             msg_hash = pedersen_hash(market_id, outcome)
             msg_hash = pedersen_hash(msg_hash, data_hash)
+            msg_hash = pedersen_hash(msg_hash, domain)
             priv_int = int(priv, 16) if str(priv).startswith("0x") else int(priv)
             sig_r, sig_s = starknet_sign(msg_hash, priv_int)
             return [data_hash, int(sig_r), int(sig_s)]

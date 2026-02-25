@@ -44,6 +44,9 @@ mod ShieldedPool {
     use starknet::storage::Map;
     use starknet::storage::StoragePointerReadAccess;
     use starknet::storage::StoragePointerWriteAccess;
+    use starknet::SyscallResultTrait;
+    use starknet::class_hash::ClassHash;
+    use starknet::syscalls::replace_class_syscall;
 
     const ACTION_NONE: felt252 = 0;
     const ACTION_BUY: felt252 = 1;
@@ -69,6 +72,7 @@ mod ShieldedPool {
         RootUpdated: RootUpdated,
         NullifierUsed: NullifierUsed,
         ActionExecuted: ActionExecuted,
+        Upgraded: Upgraded,
     }
 
     #[derive(Copy, Drop, starknet::Event)]
@@ -92,6 +96,11 @@ mod ShieldedPool {
         #[key]
         market_id: felt252,
         amount: u256,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct Upgraded {
+        class_hash: ClassHash,
     }
 
     #[constructor]
@@ -255,6 +264,15 @@ mod ShieldedPool {
 
         self.locked.write(false);
         true
+    }
+
+    #[external(v0)]
+    fn upgrade(ref self: ContractState, new_class_hash: ClassHash) {
+        let caller = starknet::get_caller_address();
+        let owner = self.owner.read();
+        assert(caller == owner, 'Not owner');
+        replace_class_syscall(new_class_hash).unwrap_syscall();
+        self.emit(Upgraded { class_hash: new_class_hash });
     }
 
     fn is_zero_address(addr: ContractAddress) -> bool {

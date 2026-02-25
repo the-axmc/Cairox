@@ -52,6 +52,7 @@ mod MarketFactory {
     use starknet::storage::StoragePointerReadAccess;
     use starknet::storage::StoragePointerWriteAccess;
     use starknet::syscalls::deploy_syscall;
+    use starknet::syscalls::replace_class_syscall;
 
     #[storage]
     struct Storage {
@@ -65,6 +66,39 @@ mod MarketFactory {
         market_count: u256,
         // market_id -> market info
         markets: Map<u256, ContractAddress>,
+    }
+
+    #[event]
+    #[derive(Drop, starknet::Event)]
+    enum Event {
+        MarketCreated: MarketCreated,
+        OwnershipTransferred: OwnershipTransferred,
+        Upgraded: Upgraded,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct MarketCreated {
+        #[key]
+        market_id: u256,
+        market_address: ContractAddress,
+        yes_token: ContractAddress,
+        no_token: ContractAddress,
+        question_hash: felt252,
+        question_uri: felt252,
+        initial_subsidy: u256,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct OwnershipTransferred {
+        #[key]
+        previous_owner: ContractAddress,
+        #[key]
+        new_owner: ContractAddress,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct Upgraded {
+        class_hash: ClassHash,
     }
 
     #[constructor]
@@ -89,7 +123,21 @@ mod MarketFactory {
     }
 
     #[external(v0)]
-    fn create_market(ref self: ContractState, question: felt252, initial_subsidy: u256) -> u256 {
+    fn transfer_ownership(ref self: ContractState, new_owner: ContractAddress) {
+        let caller = starknet::get_caller_address();
+        let owner = self.owner.read();
+        assert(caller == owner, 'Not owner');
+        self.owner.write(new_owner);
+        self.emit(OwnershipTransferred { previous_owner: owner, new_owner });
+    }
+
+    #[external(v0)]
+    fn create_market(
+        ref self: ContractState,
+        question_hash: felt252,
+        question_uri: felt252,
+        initial_subsidy: u256
+    ) -> u256 {
         let id = self.market_count.read();
         self.market_count.write(id + u256 { low: 1, high: 0 });
 
@@ -105,7 +153,7 @@ mod MarketFactory {
         let market_class_hash = self.market_class_hash.read();
 
         let mut yes_calldata: Array<felt252> = ArrayTrait::new();
-        yes_calldata.append(question);
+        yes_calldata.append(question_hash);
         yes_calldata.append('YES');
         yes_calldata.append(factory_addr.into());
         let yes_salt: felt252 = id.low.into();
@@ -118,7 +166,7 @@ mod MarketFactory {
         .unwrap_syscall();
 
         let mut no_calldata: Array<felt252> = ArrayTrait::new();
-        no_calldata.append(question);
+        no_calldata.append(question_hash);
         no_calldata.append('NO');
         no_calldata.append(factory_addr.into());
         let no_salt: felt252 = (id.low + 1_u128).into();
@@ -131,7 +179,8 @@ mod MarketFactory {
         .unwrap_syscall();
 
         let mut market_calldata: Array<felt252> = ArrayTrait::new();
-        market_calldata.append(question);
+        market_calldata.append(question_hash);
+        market_calldata.append(question_uri);
         market_calldata.append(self.collateral_token.read().into());
         market_calldata.append(yes_token.into());
         market_calldata.append(no_token.into());
@@ -173,6 +222,15 @@ mod MarketFactory {
 
         // Store market address
         self.markets.write(id, market_addr);
+        self.emit(MarketCreated {
+            market_id: id,
+            market_address: market_addr,
+            yes_token,
+            no_token,
+            question_hash,
+            question_uri,
+            initial_subsidy
+        });
         id
     }
 
@@ -184,6 +242,15 @@ mod MarketFactory {
     #[external(v0)]
     fn get_market(self: @ContractState, market_id: u256) -> felt252 {
         self.markets.read(market_id).into()
+    }
+
+    #[external(v0)]
+    fn upgrade(ref self: ContractState, new_class_hash: ClassHash) {
+        let caller = starknet::get_caller_address();
+        let owner = self.owner.read();
+        assert(caller == owner, 'Not owner');
+        replace_class_syscall(new_class_hash).unwrap_syscall();
+        self.emit(Upgraded { class_hash: new_class_hash });
     }
 
     fn is_zero_address(addr: ContractAddress) -> bool {

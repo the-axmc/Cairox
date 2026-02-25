@@ -1,4 +1,4 @@
-use snforge::test;
+use snforge_std::test;
 use cairox_contracts::Contract;
 
 #[test]

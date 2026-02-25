@@ -1,7 +1,7 @@
 // Tests for ZK Proof Verification in Cairox
 // Tests fast-finalization path using ZK proofs vs optimistic path
 
-use snforge::test;
+use snforge_std::test;
 use starknet::ContractAddress;
 use starknet::cast::cast_felt;
 use openzeppelin::math::u256 as u256_lib;

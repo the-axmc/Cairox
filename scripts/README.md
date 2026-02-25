@@ -2,6 +2,11 @@
 
 Contains utility scripts for working with Cairox market specifications.
 
+## Security Note
+These scripts use raw private keys for convenience in dev/test environments.
+For production, use a keystore + remote signer (HSM or wallet), and avoid
+passing secrets via environment variables or CLI flags.
+
 ## validate_specs.py
 
 Validate market specifications against the JSON schema and generate deterministic market IDs.

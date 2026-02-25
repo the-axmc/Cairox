@@ -7,6 +7,9 @@ mod LMSRMarketMaker {
     use starknet::storage::StoragePointerReadAccess;
     use starknet::storage::StoragePointerWriteAccess;
     use starknet::ContractAddress;
+    use starknet::SyscallResultTrait;
+    use starknet::class_hash::ClassHash;
+    use starknet::syscalls::replace_class_syscall;
 
     const SCALE: u128 = 1000000000000000000_u128; // 1e18
     const E_SCALED: u128 = 2718281828459045235_u128; // e * 1e18
@@ -21,6 +24,16 @@ mod LMSRMarketMaker {
         b_params: Map<felt252, u256>,
     }
 
+    #[event]
+    #[derive(Drop, starknet::Event)]
+    enum Event {
+        Upgraded: Upgraded,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct Upgraded {
+        class_hash: ClassHash,
+    }
     #[constructor]
     fn constructor(ref self: ContractState) {
         let owner = deployer_felt();
@@ -135,6 +148,15 @@ mod LMSRMarketMaker {
         assert(b_u > 0, 'b=0');
         let cost = cost(b_u, 0_u128, 0_u128);
         u256 { low: cost, high: 0 }
+    }
+
+    #[external(v0)]
+    fn upgrade(ref self: ContractState, new_class_hash: ClassHash) {
+        let caller: felt252 = starknet::get_caller_address().into();
+        let owner = self.owner.read();
+        assert(caller == owner, 'Not owner');
+        replace_class_syscall(new_class_hash).unwrap_syscall();
+        self.emit(Upgraded { class_hash: new_class_hash });
     }
 
     fn u256_to_u128(x: u256) -> u128 {

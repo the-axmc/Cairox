@@ -16,9 +16,12 @@ trait IERC20<TContractState> {
 #[starknet::contract]
 mod CollateralVault {
     use super::{ContractAddress, IERC20Dispatcher, IERC20DispatcherTrait};
+    use starknet::SyscallResultTrait;
+    use starknet::class_hash::ClassHash;
     use starknet::storage::Map;
     use starknet::storage::StoragePointerReadAccess;
     use starknet::storage::StoragePointerWriteAccess;
+    use starknet::syscalls::replace_class_syscall;
 
     #[storage]
     struct Storage {
@@ -39,6 +42,7 @@ mod CollateralVault {
         OwnershipTransferred: OwnershipTransferred,
         Paused: Paused,
         Unpaused: Unpaused,
+        Upgraded: Upgraded,
     }
 
     #[derive(Copy, Drop, starknet::Event)]
@@ -76,6 +80,11 @@ mod CollateralVault {
 
     #[derive(Copy, Drop, starknet::Event)]
     struct Unpaused {}
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct Upgraded {
+        class_hash: ClassHash,
+    }
 
     #[constructor]
     fn constructor(ref self: ContractState, collateral_token: ContractAddress) {
@@ -189,6 +198,15 @@ mod CollateralVault {
     #[external(v0)]
     fn is_paused(self: @ContractState) -> bool {
         self.paused.read()
+    }
+
+    #[external(v0)]
+    fn upgrade(ref self: ContractState, new_class_hash: ClassHash) {
+        let caller = starknet::get_caller_address();
+        let owner = self.owner.read();
+        assert(caller == owner, 'Not owner');
+        replace_class_syscall(new_class_hash).unwrap_syscall();
+        self.emit(Upgraded { class_hash: new_class_hash });
     }
 
     fn zero_address() -> ContractAddress {

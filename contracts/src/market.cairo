@@ -62,11 +62,14 @@ mod Market {
         IOptimisticOracleDispatcher, IOptimisticOracleDispatcherTrait,
     };
     use starknet::ContractAddress;
+    use starknet::SyscallResultTrait;
+    use starknet::class_hash::ClassHash;
     use core::box::BoxTrait;
     use core::option::OptionTrait;
     use core::traits::TryInto;
     use starknet::storage::StoragePointerReadAccess;
     use starknet::storage::StoragePointerWriteAccess;
+    use starknet::syscalls::replace_class_syscall;
 
     const OUTCOME_YES: felt252 = 1;
     const OUTCOME_NO: felt252 = 0;
@@ -95,8 +98,9 @@ mod Market {
         oracle: ContractAddress,
         market_id: felt252,
 
-        // Market data
-        question: felt252,
+        // Market metadata
+        question_hash: felt252,
+        question_uri: felt252,
 
         // Circuit breaker
         trading_paused: bool,
@@ -124,10 +128,92 @@ mod Market {
         total_volume: u256,
     }
 
+    #[event]
+    #[derive(Drop, starknet::Event)]
+    enum Event {
+        Trade: Trade,
+        MarketResolved: MarketResolved,
+        MarketPaused: MarketPaused,
+        MarketResumed: MarketResumed,
+        LimitsUpdated: LimitsUpdated,
+        Seeded: Seeded,
+        Redeemed: Redeemed,
+        OwnershipTransferStarted: OwnershipTransferStarted,
+        OwnershipTransferred: OwnershipTransferred,
+        Upgraded: Upgraded,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct Trade {
+        #[key]
+        trader: ContractAddress,
+        #[key]
+        outcome: felt252,
+        is_buy: u8,
+        collateral: u256,
+        tokens: u256,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct MarketResolved {
+        #[key]
+        market_id: felt252,
+        outcome: felt252,
+        resolved_at: u256,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct MarketPaused {
+        reason: felt252,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct MarketResumed {}
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct LimitsUpdated {
+        max_trade_size: u256,
+        min_trade_size: u256,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct Seeded {
+        amount: u256,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct Redeemed {
+        #[key]
+        user: ContractAddress,
+        amount: u256,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct OwnershipTransferStarted {
+        #[key]
+        previous_owner: ContractAddress,
+        #[key]
+        new_owner: ContractAddress,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct OwnershipTransferred {
+        #[key]
+        previous_owner: ContractAddress,
+        #[key]
+        new_owner: ContractAddress,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct Upgraded {
+        class_hash: ClassHash,
+    }
+
     #[constructor]
     fn constructor(
         ref self: ContractState,
-        question: felt252,
+        question_hash: felt252,
+        question_uri: felt252,
         collateral_token: ContractAddress,
         yes_token: ContractAddress,
         no_token: ContractAddress,
@@ -150,7 +236,8 @@ mod Market {
         self.b_param.write(b_param);
         self.oracle.write(oracle);
         self.market_id.write(market_id);
-        self.question.write(question);
+        self.question_hash.write(question_hash);
+        self.question_uri.write(question_uri);
 
         self.trading_paused.write(false);
         self.pause_reason.write(0);
@@ -181,6 +268,7 @@ mod Market {
         let caller = starknet::get_caller_address();
         assert(caller == current, 'Not owner');
         self.pending_owner.write(new_owner);
+        self.emit(OwnershipTransferStarted { previous_owner: current, new_owner });
     }
 
     #[external(v0)]
@@ -188,8 +276,10 @@ mod Market {
         let pending = self.pending_owner.read();
         let caller = starknet::get_caller_address();
         assert(caller == pending, 'Not pending');
+        let previous = self.owner.read();
         self.owner.write(pending);
         self.pending_owner.write(zero_address());
+        self.emit(OwnershipTransferred { previous_owner: previous, new_owner: pending });
     }
 
     // Circuit breaker - pause trading
@@ -201,6 +291,7 @@ mod Market {
 
         self.trading_paused.write(true);
         self.pause_reason.write(reason);
+        self.emit(MarketPaused { reason });
     }
 
     // Resume trading
@@ -212,6 +303,7 @@ mod Market {
         
         self.trading_paused.write(false);
         self.pause_reason.write(0);
+        self.emit(MarketResumed {});
     }
 
     // Update limits
@@ -223,6 +315,7 @@ mod Market {
         
         self.max_trade_size.write(max_size);
         self.min_trade_size.write(min_size);
+        self.emit(LimitsUpdated { max_trade_size: max_size, min_trade_size: min_size });
     }
 
     // Buy tokens
@@ -282,6 +375,14 @@ mod Market {
         let volume = self.total_volume.read();
         self.total_volume.write(volume + collateral_amount);
 
+        self.emit(Trade {
+            trader: buyer,
+            outcome,
+            is_buy: 1,
+            collateral: collateral_amount,
+            tokens: tokens_out
+        });
+
         self.locked.write(false);
         tokens_out
     }
@@ -338,6 +439,14 @@ mod Market {
         let volume = self.total_volume.read();
         self.total_volume.write(volume + collateral_out);
 
+        self.emit(Trade {
+            trader: seller,
+            outcome,
+            is_buy: 0,
+            collateral: collateral_out,
+            tokens: token_amount
+        });
+
         self.locked.write(false);
         collateral_out
     }
@@ -369,6 +478,8 @@ mod Market {
         self.winning_outcome.write(winning_outcome);
 
         self.resolved_at.write(now);
+        let market_id = self.market_id.read();
+        self.emit(MarketResolved { market_id, outcome: winning_outcome, resolved_at: now });
     }
 
     // Resolve market from OptimisticOracle outcome
@@ -392,6 +503,8 @@ mod Market {
         self.status.write(STATE_RESOLVED);
         self.winning_outcome.write(outcome);
         self.resolved_at.write(now);
+        let market_id = self.market_id.read();
+        self.emit(MarketResolved { market_id, outcome, resolved_at: now });
     }
 
     // Seed collateral for LMSR solvency (factory-only)
@@ -404,6 +517,7 @@ mod Market {
 
         let total = self.total_collateral.read();
         self.total_collateral.write(total + amount);
+        self.emit(Seeded { amount });
     }
 
     // Redeem winnings
@@ -443,6 +557,7 @@ mod Market {
             self.no_supply.write(supply - winnings);
         }
 
+        self.emit(Redeemed { user, amount: winnings });
         self.locked.write(false);
         winnings
     }
@@ -496,6 +611,16 @@ mod Market {
     }
 
     #[external(v0)]
+    fn get_question_hash(self: @ContractState) -> felt252 {
+        self.question_hash.read()
+    }
+
+    #[external(v0)]
+    fn get_question_uri(self: @ContractState) -> felt252 {
+        self.question_uri.read()
+    }
+
+    #[external(v0)]
     fn get_yes_supply(self: @ContractState) -> u256 {
         self.yes_supply.read()
     }
@@ -521,6 +646,15 @@ mod Market {
         let caller = starknet::get_caller_address();
         assert(caller == current, 'Not owner');
         self.resolution_delay.write(delay);
+    }
+
+    #[external(v0)]
+    fn upgrade(ref self: ContractState, new_class_hash: ClassHash) {
+        let current = self.owner.read();
+        let caller = starknet::get_caller_address();
+        assert(caller == current, 'Not owner');
+        replace_class_syscall(new_class_hash).unwrap_syscall();
+        self.emit(Upgraded { class_hash: new_class_hash });
     }
 
     fn is_zero_address(addr: ContractAddress) -> bool {
