@@ -1,100 +1,238 @@
 {
-  "markets": [
+  "daily_templates": [
     {
-      "market_id": "0743563b4b978ed732eef5076dfe162ae3c61128205b0bbd88ad985edadb7409",
-      "type": "binary_threshold",
+      "id": "starknet-daa-daily",
+      "type": "binary_threshold_daily",
       "metric_source": "growthepie",
-      "endpoint": "/defi/tvl",
-      "cutoff": "2026-03-01T00:00:00Z",
-      "resolution_rule": "threshold",
-      "aggregation": "daily bucket at date 2026-03-01",
-      "outcomes": ["YES", "NO"],
-      "void_conditions": [
-        "if no BTC TVL data available by cutoff date",
-        "if Growthepie API returns error 5xx"
+      "metric_label": "DAA",
+      "endpoint_candidates": [
+        "/v1/export/daa.json",
+        "/v1/export/daa-overview.json",
+        "/v1/export/daily-active-addresses.json"
       ],
-      "dispute_window_seconds": 86400,
-      "threshold_config": {
-        "threshold_value": 100000000000,
-        "threshold_operator": ">",
-        "threshold_unit": "USD"
-      },
-      "name": "Is BTC TVL above $100B on March 1st?",
-      "description": "Checks if Bitcoin's total value locked on Growthepie exceeds $100 billion at the end of March 1st, 2026 UTC",
-      "market_address": "0x0123",
+      "filter_field": "origin_key",
+      "filter_value": "starknet",
+      "value_field": "value",
+      "date_field": "date",
+      "threshold_operator": ">=",
+      "threshold_unit": "addresses",
+      "threshold_precision": 0,
       "metadata": {
-        "category": "defi",
-        "asset": "bitcoin",
-        "metric": "tvl"
+        "chain": "starknet",
+        "metric_key": "daa",
+        "segment": "growth"
       }
     },
     {
-      "market_id": "606e8469f603d0c5dbf2d0060e4391c97c3816e9518ccd4374603e5b2a207e57",
-      "type": "categorical_top1",
+      "id": "starknet-txcount-daily",
+      "type": "binary_threshold_daily",
       "metric_source": "growthepie",
-      "endpoint": "/ecosystem/activity",
-      "cutoff": "2026-03-01T00:00:00Z",
-      "resolution_rule": "top1",
-      "aggregation": "daily bucket at date 2026-03-01",
-      "outcomes": ["Arbitrum", "Optimism", "Base", "Starknet"],
-      "void_conditions": [
-        "if no L2 activity data available by cutoff date",
-        "if Growthepie API returns error 5xx",
-        "if all L2s have zero activity"
+      "metric_label": "Transaction count",
+      "endpoint_candidates": [
+        "/v1/export/txcount.json"
       ],
-      "dispute_window_seconds": 86400,
-      "category_field": "chain",
-      "value_field": "total_active_users",
-      "name": "Which L2 has highest TVL on March 1st?",
-      "description": "Predicts which Layer 2 blockchain will have the highest total value locked on March 1st, 2026 UTC",
-      "market_address": "0x0456",
+      "filter_field": "origin_key",
+      "filter_value": "starknet",
+      "value_field": "value",
+      "date_field": "date",
+      "threshold_operator": ">=",
+      "threshold_unit": "transactions",
+      "threshold_precision": 0,
       "metadata": {
-        "category": "l2",
-        "metric": "tvl",
-        "chains": ["arbitrum", "optimism", "base", "starknet"]
+        "chain": "starknet",
+        "metric_key": "txcount",
+        "segment": "activity"
       }
     },
     {
-      "market_id": "auto-generated-daas-Feb22",
-      "type": "binary_threshold",
+      "id": "starknet-throughput-daily",
+      "type": "binary_threshold_daily",
       "metric_source": "growthepie",
-      "endpoint": "/defi/daa",
-      "asset": "starknet",
-      "threshold": 100000,
-      "aggregation": "daily bucket at date D",
-      "resolution_rule": "threshold",
-      "outcomes": ["YES", "NO"],
-      "cutoff": "2026-02-22T00:00:00Z",
-      "void_conditions": ["if no data by cutoff-1h"],
-      "dispute_window_seconds": 300,
-      "name": "Starknet DAA >= 100k on Feb 22?",
-      "description": "Checks if Starknet's daily active addresses reaches or exceeds 100,000 on Feb 22, 2026",
-      "market_address": "0x0789",
+      "metric_label": "Throughput",
+      "endpoint_candidates": [
+        "/v1/export/throughput.json"
+      ],
+      "filter_field": "origin_key",
+      "filter_value": "starknet",
+      "value_field": "value",
+      "date_field": "date",
+      "threshold_operator": ">=",
+      "threshold_unit": "tx/s",
+      "threshold_precision": 2,
       "metadata": {
-        "category": "users",
-        "metric": "daa"
+        "chain": "starknet",
+        "metric_key": "throughput",
+        "segment": "performance"
       }
     },
     {
-      "market_id": "auto-generated-txcount-Feb22",
-      "type": "binary_threshold",
+      "id": "starknet-tvl-daily",
+      "type": "binary_threshold_daily",
       "metric_source": "growthepie",
-      "endpoint": "/defi/txcount",
-      "asset": "starknet",
-      "threshold": 500000,
-      "aggregation": "daily bucket at date D",
-      "resolution_rule": "threshold",
-      "outcomes": ["YES", "NO"],
-      "cutoff": "2026-02-22T00:00:00Z",
-      "void_conditions": ["if no data by cutoff-1h"],
-      "dispute_window_seconds": 300,
-      "name": "Starknet txcount >= 500k on Feb 22?",
-      "description": "Checks if Starknet's daily transaction count reaches or exceeds 500,000 on Feb 22, 2026",
-      "market_address": "0x0abc",
+      "metric_label": "TVL",
+      "endpoint_candidates": [
+        "/v1/export/tvl.json"
+      ],
+      "filter_field": "origin_key",
+      "filter_value": "starknet",
+      "value_field": "value",
+      "date_field": "date",
+      "threshold_operator": ">=",
+      "threshold_unit": "USD",
+      "threshold_precision": 0,
       "metadata": {
-        "category": "activity",
-        "metric": "txcount"
+        "chain": "starknet",
+        "metric_key": "tvl",
+        "segment": "defi"
+      }
+    },
+    {
+      "id": "starknet-stables-mcap-daily",
+      "type": "binary_threshold_daily",
+      "metric_source": "growthepie",
+      "metric_label": "Stablecoin market cap",
+      "endpoint_candidates": [
+        "/v1/export/stables_mcap.json"
+      ],
+      "filter_field": "origin_key",
+      "filter_value": "starknet",
+      "value_field": "value",
+      "date_field": "date",
+      "threshold_operator": ">=",
+      "threshold_unit": "USD",
+      "threshold_precision": 0,
+      "metadata": {
+        "chain": "starknet",
+        "metric_key": "stables_mcap",
+        "segment": "liquidity"
+      }
+    },
+    {
+      "id": "starknet-fees-paid-daily",
+      "type": "binary_threshold_daily",
+      "metric_source": "growthepie",
+      "metric_label": "Fees paid",
+      "endpoint_candidates": [
+        "/v1/export/fees_paid_by_users.json"
+      ],
+      "filter_field": "origin_key",
+      "filter_value": "starknet",
+      "value_field": "value",
+      "date_field": "date",
+      "threshold_operator": ">=",
+      "threshold_unit": "USD",
+      "threshold_precision": 0,
+      "metadata": {
+        "chain": "starknet",
+        "metric_key": "fees_paid_by_users",
+        "segment": "revenue"
+      }
+    },
+    {
+      "id": "starknet-onchain-profit-daily",
+      "type": "binary_threshold_daily",
+      "metric_source": "growthepie",
+      "metric_label": "On-chain profit",
+      "endpoint_candidates": [
+        "/v1/export/profit.json"
+      ],
+      "filter_field": "origin_key",
+      "filter_value": "starknet",
+      "value_field": "value",
+      "date_field": "date",
+      "threshold_operator": ">=",
+      "threshold_unit": "USD",
+      "threshold_precision": 0,
+      "metadata": {
+        "chain": "starknet",
+        "metric_key": "profit",
+        "segment": "revenue"
+      }
+    },
+    {
+      "id": "starknet-l1-rent-daily",
+      "type": "binary_threshold_daily",
+      "metric_source": "growthepie",
+      "metric_label": "L1 rent paid",
+      "endpoint_candidates": [
+        "/v1/export/rent_paid.json"
+      ],
+      "filter_field": "origin_key",
+      "filter_value": "starknet",
+      "value_field": "value",
+      "date_field": "date",
+      "threshold_operator": "<=",
+      "threshold_unit": "USD",
+      "threshold_precision": 0,
+      "metadata": {
+        "chain": "starknet",
+        "metric_key": "rent_paid",
+        "segment": "cost"
+      }
+    },
+    {
+      "id": "starknet-txcost-daily",
+      "type": "binary_threshold_daily",
+      "metric_source": "growthepie",
+      "metric_label": "Average transaction cost",
+      "endpoint_candidates": [
+        "/v1/export/txcosts_median.json"
+      ],
+      "filter_field": "origin_key",
+      "filter_value": "starknet",
+      "value_field": "value",
+      "date_field": "date",
+      "threshold_operator": "<=",
+      "threshold_unit": "USD",
+      "threshold_precision": 4,
+      "metadata": {
+        "chain": "starknet",
+        "metric_key": "txcosts_median",
+        "segment": "cost"
+      }
+    },
+    {
+      "id": "starknet-market-cap-daily",
+      "type": "binary_threshold_daily",
+      "metric_source": "growthepie",
+      "metric_label": "Market cap",
+      "endpoint_candidates": [
+        "/v1/export/market_cap.json"
+      ],
+      "filter_field": "origin_key",
+      "filter_value": "starknet",
+      "value_field": "value",
+      "date_field": "date",
+      "threshold_operator": ">=",
+      "threshold_unit": "USD",
+      "threshold_precision": 0,
+      "metadata": {
+        "chain": "starknet",
+        "metric_key": "market_cap",
+        "segment": "valuation"
+      }
+    },
+    {
+      "id": "starknet-fdv-daily",
+      "type": "binary_threshold_daily",
+      "metric_source": "growthepie",
+      "metric_label": "FDV",
+      "endpoint_candidates": [
+        "/v1/export/fdv.json"
+      ],
+      "filter_field": "origin_key",
+      "filter_value": "starknet",
+      "value_field": "value",
+      "date_field": "date",
+      "threshold_operator": ">=",
+      "threshold_unit": "USD",
+      "threshold_precision": 0,
+      "metadata": {
+        "chain": "starknet",
+        "metric_key": "fdv",
+        "segment": "valuation"
       }
     }
-  ]
+  ],
+  "markets": []
 }

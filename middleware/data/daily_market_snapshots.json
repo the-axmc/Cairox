@@ -1,0 +1,100 @@
+{
+  "snapshots": {
+    "starknet-daa-daily:2026-03-09": {
+      "value": 47725,
+      "source_endpoint": "https://api.growthepie.com/v1/export/daa.json",
+      "source_date": "2026-03-08",
+      "captured_at": "2026-03-09T10:04:23.767Z"
+    },
+    "starknet-txcount-daily:2026-03-09": {
+      "value": 228088,
+      "source_endpoint": "https://api.growthepie.com/v1/export/txcount.json",
+      "source_date": "2026-03-08",
+      "captured_at": "2026-03-09T10:39:23.709Z"
+    },
+    "starknet-onchain-profit-daily:2026-03-09": {
+      "value": 3.3501968253296255,
+      "source_endpoint": "https://api.growthepie.com/v1/export/profit.json",
+      "source_date": "2026-03-08",
+      "captured_at": "2026-03-09T10:39:24.898Z"
+    },
+    "starknet-fdv-daily:2026-03-09": {
+      "value": 384208312.98216003,
+      "source_endpoint": "https://api.growthepie.com/v1/export/fdv.json",
+      "source_date": "2026-03-09",
+      "captured_at": "2026-03-09T10:39:24.984Z"
+    },
+    "starknet-market-cap-daily:2026-03-09": {
+      "value": 209078312.86277744,
+      "source_endpoint": "https://api.growthepie.com/v1/export/market_cap.json",
+      "source_date": "2026-03-09",
+      "captured_at": "2026-03-09T10:39:25.438Z"
+    },
+    "starknet-l1-rent-daily:2026-03-09": {
+      "value": 0.021655859349651013,
+      "source_endpoint": "https://api.growthepie.com/v1/export/rent_paid.json",
+      "source_date": "2026-03-08",
+      "captured_at": "2026-03-09T10:39:26.472Z"
+    },
+    "starknet-tvl-daily:2026-03-09": {
+      "value": 538068752.0078421,
+      "source_endpoint": "https://api.growthepie.com/v1/export/tvl.json",
+      "source_date": "2026-03-08",
+      "captured_at": "2026-03-09T10:39:26.958Z"
+    },
+    "starknet-stables-mcap-daily:2026-03-09": {
+      "value": 137518.35719752728,
+      "source_endpoint": "https://api.growthepie.com/v1/export/stables_mcap.json",
+      "source_date": "2026-03-08",
+      "captured_at": "2026-03-09T10:39:26.998Z"
+    },
+    "starknet-daa-daily:2026-03-10": {
+      "value": 47725,
+      "source_endpoint": "https://api.growthepie.com/v1/export/daa.json",
+      "source_date": "2026-03-08",
+      "captured_at": "2026-03-09T23:05:42.825Z"
+    },
+    "starknet-txcount-daily:2026-03-10": {
+      "value": 228088,
+      "source_endpoint": "https://api.growthepie.com/v1/export/txcount.json",
+      "source_date": "2026-03-08",
+      "captured_at": "2026-03-09T23:05:42.846Z"
+    },
+    "starknet-onchain-profit-daily:2026-03-10": {
+      "value": 3.3501968253296255,
+      "source_endpoint": "https://api.growthepie.com/v1/export/profit.json",
+      "source_date": "2026-03-08",
+      "captured_at": "2026-03-09T23:05:42.944Z"
+    },
+    "starknet-tvl-daily:2026-03-10": {
+      "value": 538068752.0078421,
+      "source_endpoint": "https://api.growthepie.com/v1/export/tvl.json",
+      "source_date": "2026-03-08",
+      "captured_at": "2026-03-09T23:08:45.318Z"
+    },
+    "starknet-l1-rent-daily:2026-03-10": {
+      "value": 0.021655859349651013,
+      "source_endpoint": "https://api.growthepie.com/v1/export/rent_paid.json",
+      "source_date": "2026-03-08",
+      "captured_at": "2026-03-09T23:08:45.365Z"
+    },
+    "starknet-market-cap-daily:2026-03-10": {
+      "value": 107778.8869317023,
+      "source_endpoint": "https://api.growthepie.com/v1/export/market_cap.json",
+      "source_date": "2026-03-09",
+      "captured_at": "2026-03-09T23:08:45.407Z"
+    },
+    "starknet-fdv-daily:2026-03-10": {
+      "value": 198185.99666075088,
+      "source_endpoint": "https://api.growthepie.com/v1/export/fdv.json",
+      "source_date": "2026-03-09",
+      "captured_at": "2026-03-09T23:08:45.451Z"
+    },
+    "starknet-stables-mcap-daily:2026-03-10": {
+      "value": 137518.35719752728,
+      "source_endpoint": "https://api.growthepie.com/v1/export/stables_mcap.json",
+      "source_date": "2026-03-08",
+      "captured_at": "2026-03-09T23:08:45.517Z"
+    }
+  }
+}

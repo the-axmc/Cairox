@@ -1,12 +1,20 @@
-import { markets } from "./data/markets";
+import { useState } from "react";
 import backgroundQueen from "./assets/background_queen.png";
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
 import Docs from "./pages/Docs";
+import Access from "./pages/Access";
+import Markets from "./pages/Markets";
+import MarketPreviewGrid from "./components/MarketPreviewGrid";
+import NileRunner from "./components/NileRunner";
 
 export default function App() {
+  const [showNileRunner, setShowNileRunner] = useState(false);
   const path = typeof window !== "undefined" ? window.location.pathname : "/";
-  const isDocs = path.startsWith("/docs");
+  const normalizedPath = path.replace(/\/+$/, "") || "/";
+  const isDocs = normalizedPath === "/docs" || normalizedPath.startsWith("/docs/");
+  const isAccess = normalizedPath === "/access" || normalizedPath.startsWith("/access/");
+  const isMarkets = normalizedPath === "/markets" || normalizedPath.startsWith("/markets/");
 
   return (
     <div className="page">
@@ -15,6 +23,10 @@ export default function App() {
 
       {isDocs ? (
         <Docs />
+      ) : isAccess ? (
+        <Access />
+      ) : isMarkets ? (
+        <Markets />
       ) : (
         <main>
         <section className="hero">
@@ -30,7 +42,7 @@ export default function App() {
               is betting what.
             </p>
             <div className="hero__actions">
-              <a className="btn btn--primary" href="#activate">
+              <a className="btn btn--primary" href="/access">
                 Access account
               </a>
               <a className="btn btn--secondary" href="/docs">
@@ -51,55 +63,18 @@ export default function App() {
 
         <div className="section-divider" />
 
-        <section id="markets" className="markets">
-          <div className="section__head">
-            <h2>Active Markets</h2>
-            <p>
-              Data fetched from{" "}
-              <a className="text-link" href="https://growthepie.com">
-                growthepie.com
-              </a>
-            </p>
-          </div>
-          <div className="market__grid">
-            {markets.map((market) => (
-              <article key={market.id} className="market__card">
-                <div className="market__status">
-                  <span>{market.status}</span>
-                  <span>{market.volume}</span>
-                </div>
-                <h3>{market.title}</h3>
-                <div className="market__resolution">{market.resolution}</div>
-                <div className="market__bars">
-                  <div className="bar bar--yes" style={{ width: `${market.yes}%` }}>
-                    YES {market.yes}%
-                  </div>
-                  <div className="bar bar--no" style={{ width: `${market.no}%` }}>
-                    NO {market.no}%
-                  </div>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
+        <MarketPreviewGrid />
 
         <section id="activate" className="activate">
           <div className="activate__panel">
+            <div className="hero__eyebrow">Account privacy layer</div>
             <h2>Activate Account</h2>
             <p>
-              Create an account layer where deposits, trades, and withdrawals
-              are transparently transformed into ZK proofs so anonymity is maintained.
+              Create a private account layer where deposits, trades, and withdrawals
+              are transformed into ZK proofs. Observers can verify market integrity
+              without linking actions to your public wallet identity.
             </p>
-            <div className="activate__actions">
-              <a className="btn btn--primary" href="/docs">
-                Read the docs
-              </a>
-              <a className="btn btn--ghost" href="mailto:team@cairox.xyz">
-                Request access
-              </a>
-              
-            </div>
-            <div className="hero__stats">
+            <div className="hero__stats activate__stats">
               <div>
                 <div className="stat__label">Privacy mode</div>
                 <div className="stat__value">ZK notes</div>
@@ -110,16 +85,31 @@ export default function App() {
               </div>
               <div>
                 <div className="stat__label">Resolution</div>
-                <div className="stat__value">Oracle‑signed</div>
+                <div className="stat__value">Oracle-signed</div>
               </div>
             </div>
-          </div>
-          <div className="activate__pillar">
-            <div className="rune">𓋹</div>
-            <div className="rune">𓂀</div>
-            <div className="rune">𓆣</div>
+            <div className="activate__explain">
+              <article className="activate__step">
+                <h3>𓋹 Fund</h3>
+                <p>Deposit collateral once, then interact through shielded account state.</p>
+              </article>
+              <article className="activate__step">
+                <h3>𓂀 Trade privately</h3>
+                <p>Orders are submitted with proof-backed balance checks instead of plain account history.</p>
+              </article>
+              <article className="activate__step">
+                <h3>𓆣 Resolve publicly</h3>
+                <p>Outcomes are published from objective oracle data while individual bet history stays private.</p>
+              </article>
+            </div>
+            <div className="activate__actions">
+              <button className="btn btn--secondary" type="button" onClick={() => setShowNileRunner(true)}>
+                Play Nile Runner
+              </button>
+            </div>
           </div>
         </section>
+        <NileRunner open={showNileRunner} onClose={() => setShowNileRunner(false)} />
         </main>
       )}
 

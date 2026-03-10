@@ -1,0 +1,95 @@
+{
+  "accounts": {
+    "0x6fb6bc60ef5a72465d707ec3980a5ddef78050fcb75023c02e407810f4f5140": {
+      "wallet": "0x6fb6bc60ef5a72465d707ec3980a5ddef78050fcb75023c02e407810f4f5140",
+      "created_at": "2026-03-09T09:29:57.249Z",
+      "updated_at": "2026-03-10T13:19:37.031Z",
+      "last_seen_at": "2026-03-10T13:19:37.031Z",
+      "usdc_deposit_happened": true,
+      "shieldpool_hashes": [
+        "0x90f46858aaef475b8ed0dc0c554b2a1f00000000000000000000000000000000",
+        "0x909bf59fabf24c5a955b6ca2d953d0b800000000000000000000000000000000"
+      ],
+      "history": [
+        {
+          "id": "5c13debd-afcb-4be7-b77d-4c6a0ca8c049",
+          "type": "deposit",
+          "amount": "2",
+          "market_id": "0743563b4b978ed732eef5076dfe162ae3c61128205b0bbd88ad985edadb7409",
+          "outcome": "",
+          "action": "",
+          "recipient": "",
+          "tx_hash": "0x90f46858aaef475b8ed0dc0c554b2a1f00000000000000000000000000000000",
+          "created_at": "2026-03-09T09:30:36.634Z",
+          "status": "submitted",
+          "note": "USDC deposit simulated in simple flow mode"
+        },
+        {
+          "id": "7fcd25a9-6e32-4e19-a2a3-c6c02197daaa",
+          "type": "trade",
+          "amount": "2",
+          "market_id": "0743563b4b978ed732eef5076dfe162ae3c61128205b0bbd88ad985edadb7409",
+          "outcome": "yes",
+          "action": "buy",
+          "recipient": "",
+          "tx_hash": "0x5d07de72e3d140809eb47137a1398d7200000000000000000000000000000000",
+          "created_at": "2026-03-09T09:30:46.142Z",
+          "status": "submitted",
+          "note": "Trade buy YES (simple flow)"
+        },
+        {
+          "id": "69fe8a50-29fc-4b19-890d-ce1ca5d2ab03",
+          "type": "deposit",
+          "amount": "5",
+          "market_id": "starknet-daa-daily:2026-03-09",
+          "outcome": "",
+          "action": "",
+          "recipient": "",
+          "tx_hash": "0x909bf59fabf24c5a955b6ca2d953d0b800000000000000000000000000000000",
+          "created_at": "2026-03-09T10:05:20.760Z",
+          "status": "submitted",
+          "note": "USDC deposit simulated in simple flow mode"
+        },
+        {
+          "id": "20aa1ec6-34a8-4ce8-b755-c379cddb9e80",
+          "type": "trade",
+          "amount": "2",
+          "market_id": "starknet-daa-daily:2026-03-09",
+          "outcome": "yes",
+          "action": "buy",
+          "recipient": "",
+          "tx_hash": "0x9efaaafcba5742ea9d9152a2b7a5bb8300000000000000000000000000000000",
+          "created_at": "2026-03-09T10:05:43.448Z",
+          "status": "submitted",
+          "note": "Trade buy YES (simple flow)"
+        },
+        {
+          "id": "d7295673-3fe0-4027-a995-893043144965",
+          "type": "trade",
+          "amount": "2",
+          "market_id": "starknet-daa-daily:2026-03-09",
+          "outcome": "yes",
+          "action": "sell",
+          "recipient": "",
+          "tx_hash": "0x274177cba06f440caa891d65b51a401500000000000000000000000000000000",
+          "created_at": "2026-03-09T10:05:55.300Z",
+          "status": "submitted",
+          "note": "Trade sell YES (simple flow)"
+        },
+        {
+          "id": "5c6713d3-7b32-4d67-a584-eaa2dd2ec33e",
+          "type": "trade",
+          "amount": "3",
+          "market_id": "starknet-daa-daily:2026-03-09",
+          "outcome": "no",
+          "action": "buy",
+          "recipient": "",
+          "tx_hash": "0xac7f8d93a7b1481b9d9cfda65e85be4800000000000000000000000000000000",
+          "created_at": "2026-03-09T10:06:05.872Z",
+          "status": "submitted",
+          "note": "Trade buy NO (simple flow)"
+        }
+      ]
+    }
+  }
+}

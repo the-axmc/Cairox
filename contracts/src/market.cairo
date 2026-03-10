@@ -576,6 +576,50 @@ mod Market {
 
     // Redeem winnings
     #[external(v0)]
+    fn redeem_amount(ref self: ContractState, outcome: felt252, amount: u256) -> u256 {
+        assert(!self.locked.read(), 'Reentrancy');
+        self.locked.write(true);
+        assert(self.status.read() == STATE_RESOLVED, 'Not resolved');
+
+        let user = starknet::get_caller_address();
+        enforce_privacy_adapter(@self, user);
+        let winning = self.winning_outcome.read();
+        assert(outcome == winning, 'Not winning outcome');
+        assert(amount > u256 { low: 0, high: 0 }, 'Zero amount');
+
+        let (token, supply) = if winning == OUTCOME_YES {
+            (IOutcomeTokenDispatcher { contract_address: self.yes_token.read() }, self.yes_supply.read())
+        } else {
+            (IOutcomeTokenDispatcher { contract_address: self.no_token.read() }, self.no_supply.read())
+        };
+
+        let balance = token.balance_of(user);
+        assert(balance >= amount, 'Insufficient balance');
+        assert(supply >= amount, 'Insufficient supply');
+
+        token.burn(user.into(), amount);
+
+        let collateral = IERC20Dispatcher { contract_address: self.collateral_token.read() };
+        let ok = collateral.transfer(user, amount);
+        assert(ok, 'Collateral transfer failed');
+
+        let total = self.total_collateral.read();
+        assert(total >= amount, 'Insufficient collateral');
+        self.total_collateral.write(total - amount);
+
+        if winning == OUTCOME_YES {
+            self.yes_supply.write(supply - amount);
+        } else {
+            self.no_supply.write(supply - amount);
+        }
+
+        self.emit(Redeemed { user, amount });
+        self.locked.write(false);
+        amount
+    }
+
+    // Redeem full balance (compat)
+    #[external(v0)]
     fn redeem(ref self: ContractState) -> u256 {
         assert(!self.locked.read(), 'Reentrancy');
         self.locked.write(true);
@@ -663,6 +707,11 @@ mod Market {
     #[external(v0)]
     fn get_status(self: @ContractState) -> felt252 {
         self.status.read()
+    }
+
+    #[external(v0)]
+    fn get_winning_outcome(self: @ContractState) -> felt252 {
+        self.winning_outcome.read()
     }
 
     #[external(v0)]

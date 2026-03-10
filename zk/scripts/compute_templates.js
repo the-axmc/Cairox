@@ -22,6 +22,9 @@ async function computeRootsAndNullifiers(file, mode) {
   const poseidon = await buildPoseidon();
   const F = poseidon.F;
   const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+  // Guard: circuit does not include out_nullifier_secret* signals.
+  delete raw.out_nullifier_secret1;
+  delete raw.out_nullifier_secret2;
 
   function poseidonHash(values) {
     const inputs = values.map(toBigInt);
@@ -69,7 +72,7 @@ async function computeRootsAndNullifiers(file, mode) {
 
   if (mode === 'withdraw') {
     const total = toBigInt(raw.in_amount1) + toBigInt(raw.in_amount2);
-    const expected = total - toBigInt(raw.amount_low) - toBigInt(raw.fee_low);
+    const expected = total - toBigInt(raw.amount_low);
     const half = expected / 2n;
     raw.out_amount1 = half.toString();
     raw.out_amount2 = half.toString();

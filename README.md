@@ -119,11 +119,38 @@ The Cairox protocol consists of the following core contracts:
 
 ### Prerequisites
 
-- **Rust** (for Scarb)
-- **Python 3.10+** (for oracle agent and indexer)
-- **Docker** (for local devnet)
+- **Node.js 20+** (for frontend + middleware simple flow)
+- **Rust** (for Scarb, only needed for contract development)
+- **Python 3.10+** (only needed for oracle/indexer)
+- **Docker** (only needed for full local stack/devnet)
 
-### Quick Start
+### Simple Local Flow (Recommended)
+
+This flow runs only `middleware` + `frontend` and works without Starknet RPC,
+relayer, oracle, or indexer.
+
+```bash
+# Terminal 1
+cd middleware
+npm install
+MIDDLEWARE_SIMPLE_FLOW=1 npm run dev
+```
+
+```bash
+# Terminal 2
+cd frontend
+npm install
+npm run dev
+```
+
+Open `http://localhost:5173`.
+
+The middleware uses `specs/markets.json` for market data and simulates
+deposit/trade/withdraw/account balances locally in `middleware/data/accounts.json`.
+Daily templates in `specs/markets.json` fetch Growthepie data, lock a 00:00 Europe/Berlin
+snapshot, close at 23:59, and reopen at 00:01 with the next day's threshold.
+
+### Full On-Chain Quick Start
 
 ```bash
 # Clone the repository
@@ -163,6 +190,12 @@ cp ../.env.sample .env
 # Run oracle agent
 python src/agent.py
 ```
+
+### Production (Sepolia, Private Trades V1)
+
+See `docs/PRODUCTION.md` for the Sepolia production checklist, ZK artifact generation,
+verifier build steps, and environment validation.
+Self-hosted docker-compose instructions live in `ops/README.md`.
 
 ## Project Structure
 

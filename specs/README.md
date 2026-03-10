@@ -4,6 +4,15 @@
 
 This directory contains the specification format for prediction markets on Cairox, using Growthepie as the data source.
 
+## Runtime Daily Templates
+
+`specs/markets.json` can now define `daily_templates` used by the middleware simple flow.
+Each template generates one daily market that:
+- snapshots Growthepie at 00:00 `Europe/Berlin`
+- sets the daily threshold from that snapshot
+- closes at 23:59
+- reopens at 00:01 with a new question/threshold
+
 ## Structure
 
 ```

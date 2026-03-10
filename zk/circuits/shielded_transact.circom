@@ -251,12 +251,17 @@ template ShieldedTransact(DEPTH) {
     signal is_withdraw;
     is_withdraw <== eq_action5.out;
 
+    // Trade actions that require live market state (buy/sell only).
     signal is_trade;
-    is_trade <== is_buy + is_sell + is_redeem;
+    is_trade <== is_buy + is_sell;
     is_trade * (is_trade - 1) === 0;
 
+    signal is_exit;
+    is_exit <== is_sell + is_redeem;
+    is_exit * (is_exit - 1) === 0;
+
     signal needs_inputs;
-    needs_inputs <== is_trade + is_withdraw;
+    needs_inputs <== is_buy + is_sell + is_redeem + is_withdraw;
     needs_inputs * (needs_inputs - 1) === 0;
 
     // Merkle membership for input notes (old_root) - only required for trades/withdrawals
@@ -319,8 +324,17 @@ template ShieldedTransact(DEPTH) {
     limit_high === 0;
     fee_high === 0;
 
-    // Enforce prices sum to SCALE (simple invariant) for trades
-    (price_yes + price_no - 1000000000000000000) * is_trade === 0;
+    // Enforce prices sum to SCALE (allow off-by-1 from integer division) for trades
+    signal price_sum;
+    price_sum <== price_yes + price_no;
+    component lt_price_hi = LessThan(128);
+    lt_price_hi.in[0] <== 1000000000000000000;
+    lt_price_hi.in[1] <== price_sum;
+    lt_price_hi.out * is_trade === 0;
+    component lt_price_lo = LessThan(128);
+    lt_price_lo.in[0] <== price_sum;
+    lt_price_lo.in[1] <== 999999999999999999;
+    lt_price_lo.out * is_trade === 0;
 
     // Price is accepted from signed state.
 
@@ -338,68 +352,111 @@ template ShieldedTransact(DEPTH) {
     signal outcome_asset_id;
     outcome_asset_id <== 2 - outcome;
 
+    // Input note type helpers
+    component eq_in_asset1_coll = IsEqual();
+    eq_in_asset1_coll.in[0] <== in_asset_id1;
+    eq_in_asset1_coll.in[1] <== 0;
+    component eq_in_outcome1_zero = IsEqual();
+    eq_in_outcome1_zero.in[0] <== in_outcome1;
+    eq_in_outcome1_zero.in[1] <== 0;
+    signal in_is_collateral1;
+    in_is_collateral1 <== eq_in_asset1_coll.out * eq_in_outcome1_zero.out;
+
+    component eq_in_asset2_coll = IsEqual();
+    eq_in_asset2_coll.in[0] <== in_asset_id2;
+    eq_in_asset2_coll.in[1] <== 0;
+    component eq_in_outcome2_zero = IsEqual();
+    eq_in_outcome2_zero.in[0] <== in_outcome2;
+    eq_in_outcome2_zero.in[1] <== 0;
+    signal in_is_collateral2;
+    in_is_collateral2 <== eq_in_asset2_coll.out * eq_in_outcome2_zero.out;
+
+    component eq_in_asset1_out = IsEqual();
+    eq_in_asset1_out.in[0] <== in_asset_id1;
+    eq_in_asset1_out.in[1] <== outcome_asset_id;
+    component eq_in_outcome1 = IsEqual();
+    eq_in_outcome1.in[0] <== in_outcome1;
+    eq_in_outcome1.in[1] <== outcome;
+    signal in_is_outcome1;
+    in_is_outcome1 <== eq_in_asset1_out.out * eq_in_outcome1.out;
+
+    component eq_in_asset2_out = IsEqual();
+    eq_in_asset2_out.in[0] <== in_asset_id2;
+    eq_in_asset2_out.in[1] <== outcome_asset_id;
+    component eq_in_outcome2 = IsEqual();
+    eq_in_outcome2.in[0] <== in_outcome2;
+    eq_in_outcome2.in[1] <== outcome;
+    signal in_is_outcome2;
+    in_is_outcome2 <== eq_in_asset2_out.out * eq_in_outcome2.out;
+
     // BUY: inputs are collateral, outputs are outcome + collateral change
-    // Enforce asset ids
-    (in_asset_id1) * is_buy === 0;
-    (in_asset_id2) * is_buy === 0;
+    (1 - in_is_collateral1) * is_buy === 0;
+    (1 - in_is_collateral2) * is_buy === 0;
     (out_asset_id1 - outcome_asset_id) * is_buy === 0;
     (out_outcome1 - outcome) * is_buy === 0;
     (out_asset_id2) * is_buy === 0;
     (out_outcome2) * is_buy === 0;
 
-    // SELL: inputs are outcome, outputs are collateral + outcome change
-    (in_asset_id1 - outcome_asset_id) * is_sell === 0;
-    (in_outcome1 - outcome) * is_sell === 0;
-    (in_asset_id2 - outcome_asset_id) * is_sell === 0;
-    (in_outcome2 - outcome) * is_sell === 0;
-    (out_asset_id1) * is_sell === 0;
-    (out_outcome1) * is_sell === 0;
-    (out_asset_id2 - outcome_asset_id) * is_sell === 0;
-    (out_outcome2 - outcome) * is_sell === 0;
+    // SELL/REDEEM: inputs may be outcome + collateral, outputs are collateral + outcome change
+    (in_is_collateral1 + in_is_outcome1 - 1) * is_exit === 0;
+    (in_is_collateral2 + in_is_outcome2 - 1) * is_exit === 0;
+    (out_asset_id1) * is_exit === 0;
+    (out_outcome1) * is_exit === 0;
+    (out_asset_id2 - outcome_asset_id) * is_exit === 0;
+    (out_outcome2 - outcome) * is_exit === 0;
 
-    // Price-based buy/sell amounts
-    signal price;
-    signal price_delta;
-    signal price_prod;
-    price_delta <== price_yes - price_no;
-    price_prod <== outcome * price_delta;
-    price <== price_no + price_prod;
+    // Output amounts for BUY / SELL / REDEEM with fee accounting
+    signal in_outcome_amt1;
+    in_outcome_amt1 <== in_amount1 * in_is_outcome1;
+    signal in_outcome_amt2;
+    in_outcome_amt2 <== in_amount2 * in_is_outcome2;
+    signal in_outcome_total;
+    in_outcome_total <== in_outcome_amt1 + in_outcome_amt2;
 
-    // Use exact price constraints with output amounts (avoid division gadgets).
-    signal tokens_out;
-    tokens_out <== out_amount1;
+    signal in_collateral_amt1;
+    in_collateral_amt1 <== in_amount1 * in_is_collateral1;
+    signal in_collateral_amt2;
+    in_collateral_amt2 <== in_amount2 * in_is_collateral2;
+    signal in_collateral_total;
+    in_collateral_total <== in_collateral_amt1 + in_collateral_amt2;
 
-    signal collateral_out;
-    collateral_out <== out_amount1 + fee_low;
+    // BUY: out_amount1 == limit_low (expected tokens), out_amount2 == change
+    (out_amount1 - limit_low) * is_buy === 0;
+    (out_amount2 - (in_collateral_total - amount_low - fee_low)) * is_buy === 0;
 
-    // Enforce min output constraint depending on action
-    component lt_buy = LessThan(128);
-    lt_buy.in[0] <== tokens_out;
-    lt_buy.in[1] <== limit_low;
-    lt_buy.out * is_buy === 0;
+    component lt_buy_spend = LessThan(128);
+    lt_buy_spend.in[0] <== in_collateral_total;
+    lt_buy_spend.in[1] <== amount_low + fee_low;
+    lt_buy_spend.out * is_buy === 0;
 
-    component lt_sell = LessThan(128);
-    lt_sell.in[0] <== collateral_out;
-    lt_sell.in[1] <== limit_low;
-    lt_sell.out * is_sell === 0;
+    // SELL: out_amount1 == collateral change (in_collateral_total + limit_low - fee)
+    (out_amount1 - (in_collateral_total + limit_low - fee_low)) * is_sell === 0;
+    (out_amount2 - (in_outcome_total - amount_low)) * is_sell === 0;
 
-    // Exact price equality constraints (no rounding), gated by action.
-    signal buy_delta;
-    buy_delta <== tokens_out * price - amount_low * 1000000000000000000;
-    buy_delta * is_buy === 0;
+    component lt_sell_amt = LessThan(128);
+    lt_sell_amt.in[0] <== in_outcome_total;
+    lt_sell_amt.in[1] <== amount_low;
+    lt_sell_amt.out * is_sell === 0;
 
-    signal sell_delta;
-    sell_delta <== collateral_out * 1000000000000000000 - amount_low * price;
-    sell_delta * is_sell === 0;
+    component lt_sell_fee = LessThan(128);
+    lt_sell_fee.in[0] <== in_collateral_total + limit_low;
+    lt_sell_fee.in[1] <== fee_low;
+    lt_sell_fee.out * is_sell === 0;
 
-    // Output amounts for BUY / SELL with fee accounting
-    signal in_total;
-    in_total <== in_amount1 + in_amount2;
-    (out_amount1 - tokens_out) * is_buy === 0;
-    (out_amount2 - (in_total - amount_low - fee_low)) * is_buy === 0;
+    // REDEEM: 1:1 conversion (limit_low must match amount_low)
+    (limit_low - amount_low) * is_redeem === 0;
+    (out_amount1 - (in_collateral_total + amount_low - fee_low)) * is_redeem === 0;
+    (out_amount2 - (in_outcome_total - amount_low)) * is_redeem === 0;
 
-    (out_amount1 - (collateral_out - fee_low)) * is_sell === 0;
-    (out_amount2 - (in_total - amount_low)) * is_sell === 0;
+    component lt_redeem_amt = LessThan(128);
+    lt_redeem_amt.in[0] <== in_outcome_total;
+    lt_redeem_amt.in[1] <== amount_low;
+    lt_redeem_amt.out * is_redeem === 0;
+
+    component lt_redeem_fee = LessThan(128);
+    lt_redeem_fee.in[0] <== in_collateral_total + amount_low;
+    lt_redeem_fee.in[1] <== fee_low;
+    lt_redeem_fee.out * is_redeem === 0;
 
     // DEPOSIT: no input notes, output collateral notes == amount - fee
     in_amount1 * is_deposit === 0;
@@ -415,8 +472,14 @@ template ShieldedTransact(DEPTH) {
     signal out_total;
     out_total <== out_amount1 + out_amount2;
     (out_total - (amount_low - fee_low)) * is_deposit === 0;
+    component lt_deposit_fee = LessThan(128);
+    lt_deposit_fee.in[0] <== amount_low;
+    lt_deposit_fee.in[1] <== fee_low;
+    lt_deposit_fee.out * is_deposit === 0;
 
-    // WITHDRAW: input collateral notes, output change notes == in_total - amount - fee
+    // WITHDRAW: input collateral notes, output change notes == in_total - amount.
+    // `amount_low` is the gross value removed from notes/pool; user receives
+    // `amount_low - fee_low` in ShieldedPool and relayer receives `fee_low`.
     in_asset_id1 * is_withdraw === 0;
     in_asset_id2 * is_withdraw === 0;
     in_outcome1 * is_withdraw === 0;
@@ -425,7 +488,15 @@ template ShieldedTransact(DEPTH) {
     out_asset_id2 * is_withdraw === 0;
     out_outcome1 * is_withdraw === 0;
     out_outcome2 * is_withdraw === 0;
-    (out_total - (in_total - amount_low - fee_low)) * is_withdraw === 0;
+    (out_total - (in_collateral_total - amount_low)) * is_withdraw === 0;
+    component lt_withdraw_spend = LessThan(128);
+    lt_withdraw_spend.in[0] <== in_collateral_total;
+    lt_withdraw_spend.in[1] <== amount_low;
+    lt_withdraw_spend.out * is_withdraw === 0;
+    component lt_withdraw_fee = LessThan(128);
+    lt_withdraw_fee.in[0] <== amount_low;
+    lt_withdraw_fee.in[1] <== fee_low;
+    lt_withdraw_fee.out * is_withdraw === 0;
 }
 
 component main {

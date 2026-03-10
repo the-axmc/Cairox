@@ -62,5 +62,7 @@ oracle-agent/.cache/
 oracle-agent/cache/
 indexer/proofs/
 indexer/commitments/
+relayer/data/tmp/
+relayer/data/ledger.json
 
 /contracts/DEPLOYMENT.md

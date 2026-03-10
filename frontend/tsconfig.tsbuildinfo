@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/components/footer.tsx","./src/components/marketpreviewgrid.tsx","./src/components/navbar.tsx","./src/components/nilerunner.tsx","./src/data/markets.ts","./src/pages/access.tsx","./src/pages/docs.tsx","./src/pages/markets.tsx"],"version":"5.9.3"}

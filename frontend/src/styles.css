@@ -40,6 +40,8 @@ a {
   background: transparent;
   position: relative;
   overflow-x: hidden;
+  padding-top: 72px;
+  padding-bottom: 64px;
 }
 
 .page::before {
@@ -76,8 +78,10 @@ a {
   align-items: center;
   justify-content: space-between;
   padding: 12px 6vw;
-  position: sticky;
+  position: fixed;
   top: 0;
+  left: 0;
+  right: 0;
   z-index: 10;
   backdrop-filter: blur(6px);
   background: rgba(11, 8, 20, 0.6);
@@ -211,6 +215,118 @@ a {
   gap: 16px;
 }
 
+.access {
+  padding: 40px 8vw 80px;
+  display: grid;
+  gap: 32px;
+}
+
+.access__hero {
+  max-width: 760px;
+  display: grid;
+  gap: 12px;
+}
+
+.access__hero h1 {
+  font-family: "Cinzel Decorative", serif;
+  font-size: clamp(32px, 3.6vw, 56px);
+  line-height: 1.1;
+}
+
+.access__hero p {
+  font-size: 18px;
+  color: rgba(248, 233, 205, 0.8);
+}
+
+.access__card {
+  background: var(--panel);
+  border: 1px solid rgba(246, 213, 111, 0.25);
+  border-radius: 16px;
+  padding: 20px;
+  max-width: 560px;
+  display: grid;
+  gap: 16px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+}
+
+.wallet-form {
+  display: grid;
+  gap: 10px;
+}
+
+.wallet-form label {
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: rgba(248, 233, 205, 0.6);
+}
+
+.wallet-form input {
+  background: rgba(13, 9, 6, 0.7);
+  border: 1px solid rgba(246, 213, 111, 0.3);
+  border-radius: 10px;
+  color: #f8e9cd;
+  padding: 12px 14px;
+  font-family: "VT323", monospace;
+  font-size: 18px;
+}
+
+.wallet-form input:focus {
+  outline: 2px solid rgba(246, 213, 111, 0.4);
+  outline-offset: 2px;
+}
+
+.access__status {
+  font-size: 16px;
+  color: rgba(248, 233, 205, 0.85);
+}
+
+.access__status.error {
+  color: rgba(232, 93, 75, 0.95);
+}
+
+.access__help {
+  display: grid;
+  gap: 16px;
+  max-width: 720px;
+}
+
+.access__steps {
+  list-style: decimal;
+  padding-left: 20px;
+  display: grid;
+  gap: 8px;
+  color: rgba(248, 233, 205, 0.85);
+}
+
+.deposit-form {
+  display: grid;
+  gap: 10px;
+  max-width: 320px;
+}
+
+.deposit-form label {
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: rgba(248, 233, 205, 0.6);
+}
+
+.deposit-form input {
+  background: rgba(13, 9, 6, 0.7);
+  border: 1px solid rgba(246, 213, 111, 0.3);
+  border-radius: 10px;
+  color: #f8e9cd;
+  padding: 12px 14px;
+  font-family: "VT323", monospace;
+  font-size: 18px;
+}
+
+.deposit-form input:focus {
+  outline: 2px solid rgba(246, 213, 111, 0.4);
+  outline-offset: 2px;
+}
+
 .support-form {
   display: grid;
   gap: 12px;
@@ -290,6 +406,12 @@ a {
 .btn--primary {
   background: linear-gradient(120deg, var(--gold), #f6a45d);
   color: var(--ink);
+}
+
+.btn--secondary {
+  background: rgba(246, 213, 111, 0.12);
+  color: #f8e9cd;
+  border-color: rgba(246, 213, 111, 0.5);
 }
 
 .btn--ghost {
@@ -418,6 +540,17 @@ a {
   gap: 12px;
 }
 
+.market__card--link {
+  color: inherit;
+  text-decoration: none;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.market__card--link:hover {
+  transform: translateY(-3px);
+  border-color: rgba(246, 213, 111, 0.5);
+}
+
 .market__status {
   display: flex;
   justify-content: space-between;
@@ -439,6 +572,153 @@ a {
   gap: 6px;
 }
 
+.market__details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  font-size: 12px;
+  color: rgba(248, 233, 205, 0.7);
+}
+
+.market__bet {
+  display: grid;
+  gap: 10px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(246, 213, 111, 0.2);
+}
+
+.market__bet-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(70px, 1fr)) minmax(120px, 1fr) minmax(120px, 1fr);
+  gap: 10px;
+  align-items: center;
+}
+
+.market__bet-row input {
+  background: rgba(15, 9, 6, 0.7);
+  border: 1px solid rgba(246, 213, 111, 0.3);
+  color: #f8e9cd;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-family: "Press Start 2P", system-ui;
+  font-size: 9px;
+}
+
+.btn--ghost.active {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 2px rgba(246, 213, 111, 0.35);
+}
+
+.market-detail {
+  padding-top: 20px;
+  display: grid;
+  gap: 20px;
+}
+
+.market-detail__summary h2 {
+  font-family: "Cinzel Decorative", serif;
+  font-size: clamp(24px, 3vw, 38px);
+}
+
+.market-detail__summary p {
+  color: rgba(248, 233, 205, 0.82);
+}
+
+.market-detail__actions h3 {
+  font-family: "Cinzel Decorative", serif;
+  font-size: 24px;
+}
+
+.market__bet-row--simple {
+  grid-template-columns: minmax(140px, 1fr) minmax(180px, 1fr) minmax(170px, 1fr);
+}
+
+@media (max-width: 720px) {
+  .market__bet-row {
+    grid-template-columns: repeat(2, minmax(80px, 1fr));
+  }
+
+  .market__bet-row--simple {
+    grid-template-columns: 1fr;
+  }
+}
+
+.nile-runner__overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 6, 5, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 999;
+  backdrop-filter: blur(6px);
+}
+
+.nile-runner__panel {
+  width: min(920px, 94vw);
+  background: #120a06;
+  border: 1px solid rgba(246, 213, 111, 0.25);
+  border-radius: 18px;
+  padding: 18px;
+  display: grid;
+  gap: 16px;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.45);
+}
+
+.nile-runner__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.nile-runner__title {
+  font-family: "Cinzel Decorative", serif;
+  font-size: 24px;
+}
+
+.nile-runner__subtitle {
+  color: rgba(248, 233, 205, 0.7);
+  font-size: 13px;
+}
+
+.nile-runner__canvas canvas {
+  width: 100%;
+  border-radius: 14px;
+  border: 1px solid rgba(248, 233, 205, 0.2);
+  background: #1c120a;
+  display: block;
+}
+
+.nile-runner__controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.nile-runner__hint {
+  font-size: 12px;
+  color: rgba(248, 233, 205, 0.6);
+}
+
+.nile-runner__cta {
+  margin-left: 12px;
+}
+
+@media (max-width: 720px) {
+  .nile-runner__header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .nile-runner__cta {
+    margin-left: 0;
+    margin-top: 10px;
+  }
+}
+
 .bar {
   border-radius: 8px;
   padding: 6px 10px;
@@ -455,48 +735,122 @@ a {
 }
 
 .activate {
-  padding: 60px 8vw 80px;
-  display: grid;
-  gap: 24px;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  padding: 60px 8vw;
+  display: block;
 }
 
 .activate__panel {
-  background: var(--panel);
-  padding: 28px;
-  border-radius: 18px;
-  border: 1px solid rgba(246, 213, 111, 0.35);
+  width: 100%;
+  background:
+    radial-gradient(circle at top right, rgba(246, 213, 111, 0.1), transparent 46%),
+    var(--panel);
+  padding: clamp(24px, 4vw, 42px);
+  border-radius: 22px;
+  border: 1px solid rgba(246, 213, 111, 0.42);
+  display: grid;
+  gap: 18px;
+  align-content: start;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.45);
 }
 
 .activate__panel h2 {
   font-family: "Cinzel Decorative", serif;
-  font-size: 28px;
-  margin-bottom: 12px;
+  font-size: clamp(28px, 3vw, 40px);
+  margin: 0;
 }
 
 .activate__panel p {
   color: rgba(248, 233, 205, 0.7);
-  margin-bottom: 20px;
+  margin: 0;
+  font-size: clamp(17px, 2vw, 21px);
+  line-height: 1.25;
+}
+
+.activate__explain {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+}
+
+.activate__step {
+  background: rgba(12, 8, 5, 0.65);
+  border: 1px solid rgba(246, 213, 111, 0.25);
+  border-radius: 12px;
+  padding: 14px;
+  display: grid;
+  gap: 8px;
+}
+
+.activate__step h3 {
+  font-family: "Cinzel Decorative", serif;
+  font-size: 18px;
+}
+
+.activate__step p {
+  font-size: 16px;
+  line-height: 1.3;
+  color: rgba(248, 233, 205, 0.78);
+}
+
+.access__pending {
+  margin-top: 8px;
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
 }
 
 .activate__actions {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
+  justify-content: flex-start;
 }
 
 .activate__pillar {
   display: grid;
-  align-content: center;
-  justify-items: center;
-  gap: 18px;
+  align-content: start;
+  gap: 14px;
   background: rgba(16, 10, 8, 0.6);
   border-radius: 18px;
-  border: 1px dashed rgba(246, 213, 111, 0.3);
+  border: 1px dashed rgba(246, 213, 111, 0.35);
   padding: 24px;
+}
+
+.activate__pillar h3 {
+  font-family: "Cinzel Decorative", serif;
+  font-size: 24px;
+}
+
+.activate__pillar p {
+  color: rgba(248, 233, 205, 0.72);
+}
+
+.activate__stats {
+  margin-top: 2px;
+}
+
+.activate__runes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(42px, 1fr));
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.rune {
+  display: grid;
+  place-items: center;
+  min-height: 54px;
+  border: 1px solid rgba(246, 213, 111, 0.28);
+  border-radius: 10px;
+  background: rgba(12, 8, 6, 0.55);
   font-family: "Cinzel Decorative", serif;
   font-size: 30px;
   color: var(--gold);
+}
+
+.activate__glyph-note {
+  font-size: 14px;
+  color: rgba(248, 233, 205, 0.66);
 }
 
 .crocodile {
@@ -518,6 +872,11 @@ a {
   background: rgba(11, 8, 20, 0.6);
   font-size: 14px;
   color: rgba(248, 233, 205, 0.6);
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9;
 }
 
 .footer__links {
@@ -526,6 +885,11 @@ a {
 }
 
 @media (max-width: 760px) {
+  .page {
+    padding-top: 120px;
+    padding-bottom: 84px;
+  }
+
   .nav {
     flex-direction: column;
     gap: 12px;
@@ -538,5 +902,19 @@ a {
 
   .hero__pyramid {
     position: static;
+  }
+
+  .activate {
+    padding: 44px 6vw 56px;
+  }
+
+  .activate__explain {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (min-width: 761px) and (max-width: 980px) {
+  .activate__explain {
+    grid-template-columns: repeat(2, minmax(180px, 1fr));
   }
 }

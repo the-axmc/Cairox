@@ -28,7 +28,7 @@ trait IERC20<TContractState> {
 
 #[starknet::interface]
 trait IDataCommitment<TContractState> {
-    fn get_commitment(self: @TContractState, market_id: felt252) -> felt252;
+    fn get_commitment(self: @TContractState, market_id: felt252) -> u256;
     fn get_updated_at(self: @TContractState, market_id: felt252) -> u256;
 }
 
@@ -74,7 +74,7 @@ mod OptimisticOracle {
         status: Map<felt252, felt252>,
         proposed_outcome: Map<felt252, felt252>,
         final_outcome: Map<felt252, felt252>,
-        data_hash: Map<felt252, felt252>,
+        data_hash: Map<felt252, u256>,
         data_uri: Map<felt252, felt252>,
         proposed_at: Map<felt252, u256>,
         disputed_at: Map<felt252, u256>,
@@ -170,7 +170,7 @@ mod OptimisticOracle {
         #[key]
         market_id: felt252,
         outcome: felt252,
-        data_hash: felt252,
+        data_hash: u256,
         data_uri: felt252,
         bond: u256,
         proposer: ContractAddress,
@@ -352,7 +352,7 @@ mod OptimisticOracle {
         ref self: ContractState,
         market_id: felt252,
         outcome: felt252,
-        data_hash: felt252,
+        data_hash: u256,
         data_uri: felt252,
         bond: u256
     ) {
@@ -370,7 +370,7 @@ mod OptimisticOracle {
         ref self: ContractState,
         market_id: felt252,
         outcome: felt252,
-        data_hash: felt252,
+        data_hash: u256,
         bond: u256,
         zk_proof: Span<felt252>
     ) {
@@ -520,7 +520,7 @@ mod OptimisticOracle {
     }
 
     #[external(v0)]
-    fn get_data_hash(self: @ContractState, market_id: felt252) -> felt252 {
+    fn get_data_hash(self: @ContractState, market_id: felt252) -> u256 {
         self.data_hash.read(market_id)
     }
 
@@ -547,7 +547,7 @@ mod OptimisticOracle {
         ref self: ContractState,
         market_id: felt252,
         outcome: felt252,
-        data_hash: felt252,
+        data_hash: u256,
         data_uri: felt252,
         bond: u256,
         is_fast_path: bool
@@ -561,7 +561,7 @@ mod OptimisticOracle {
         if !is_zero_address(commitment_addr) {
             let commitment = IDataCommitmentDispatcher { contract_address: commitment_addr };
             let expected = commitment.get_commitment(market_id);
-            assert(expected != 0, 'No commitment');
+            assert(!is_zero_u256(expected), 'No commitment');
             assert(data_hash == expected, 'Data hash mismatch');
             let max_age = self.max_commitment_age.read();
             if max_age.low != 0 || max_age.high != 0 {
@@ -664,5 +664,9 @@ mod OptimisticOracle {
     fn u256_to_u128(x: u256) -> u128 {
         assert(x.high == 0, 'u256 overflow');
         x.low
+    }
+
+    fn is_zero_u256(value: u256) -> bool {
+        value.low == 0 && value.high == 0
     }
 }

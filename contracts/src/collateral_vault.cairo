@@ -13,6 +13,16 @@ trait IERC20<TContractState> {
     ) -> bool;
 }
 
+#[starknet::interface]
+trait ICollateralVault<TContractState> {
+    fn settle_to_relayer(
+        ref self: TContractState,
+        user: ContractAddress,
+        amount: u256,
+        to: ContractAddress
+    );
+}
+
 #[starknet::contract]
 mod CollateralVault {
     use super::{ContractAddress, IERC20Dispatcher, IERC20DispatcherTrait};
@@ -38,6 +48,7 @@ mod CollateralVault {
     enum Event {
         Deposited: Deposited,
         Withdrawn: Withdrawn,
+        Settled: Settled,
         OwnershipTransferStarted: OwnershipTransferStarted,
         OwnershipTransferred: OwnershipTransferred,
         Paused: Paused,
@@ -56,6 +67,15 @@ mod CollateralVault {
     struct Withdrawn {
         #[key]
         account: ContractAddress,
+        amount: u256,
+    }
+
+    #[derive(Copy, Drop, starknet::Event)]
+    struct Settled {
+        #[key]
+        account: ContractAddress,
+        #[key]
+        relayer: ContractAddress,
         amount: u256,
     }
 
@@ -176,8 +196,59 @@ mod CollateralVault {
     }
 
     #[external(v0)]
+    fn settle_to_relayer(
+        ref self: ContractState,
+        user: ContractAddress,
+        amount: u256,
+        to: ContractAddress
+    ) {
+        assert(!self.paused.read(), 'Paused');
+        assert(!is_zero_u256(amount), 'Zero amount');
+        let owner = self.owner.read();
+        let caller = starknet::get_caller_address();
+        assert(caller == owner, 'Not owner');
+
+        let current = self.balances.read(user);
+        assert(current >= amount, 'Insufficient balance');
+        self.balances.write(user, current - amount);
+
+        let total = self.total_deposited.read();
+        self.total_deposited.write(total - amount);
+
+        let token = IERC20Dispatcher { contract_address: self.collateral_token.read() };
+        let ok = token.transfer(to, amount);
+        assert(ok, 'Transfer failed');
+        self.emit(Settled { account: user, relayer: to, amount });
+    }
+
+    // Admin-only reconciliation helpers. Require vault to be paused.
+    #[external(v0)]
+    fn admin_set_balance(ref self: ContractState, user: ContractAddress, amount: u256) {
+        let owner = self.owner.read();
+        let caller = starknet::get_caller_address();
+        assert(caller == owner, 'Not owner');
+        assert(self.paused.read(), 'Not paused');
+        self.balances.write(user, amount);
+    }
+
+    #[external(v0)]
+    fn admin_set_total_deposited(ref self: ContractState, amount: u256) {
+        let owner = self.owner.read();
+        let caller = starknet::get_caller_address();
+        assert(caller == owner, 'Not owner');
+        assert(self.paused.read(), 'Not paused');
+        self.total_deposited.write(amount);
+    }
+
+    #[external(v0)]
     fn get_balance(self: @ContractState, user: ContractAddress) -> u256 {
         self.balances.read(user)
+    }
+
+    #[external(v0)]
+    fn get_my_balance(self: @ContractState) -> u256 {
+        let caller = starknet::get_caller_address();
+        self.balances.read(caller)
     }
 
     #[external(v0)]

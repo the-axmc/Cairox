@@ -4,6 +4,7 @@ use starknet::ContractAddress;
 
 #[starknet::interface]
 trait IERC20<TContractState> {
+    fn approve(ref self: TContractState, spender: ContractAddress, amount: u256) -> bool;
     fn transfer(ref self: TContractState, to: ContractAddress, amount: u256) -> bool;
     fn transfer_from(
         ref self: TContractState,
@@ -18,6 +19,9 @@ trait IMarket<TContractState> {
     fn buy(ref self: TContractState, outcome: felt252, collateral_amount: u256, min_tokens: u256) -> u256;
     fn sell(ref self: TContractState, outcome: felt252, token_amount: u256, min_collateral: u256) -> u256;
     fn redeem(ref self: TContractState) -> u256;
+    fn redeem_amount(ref self: TContractState, outcome: felt252, amount: u256) -> u256;
+    fn get_status(self: @TContractState) -> felt252;
+    fn get_winning_outcome(self: @TContractState) -> felt252;
 }
 
 #[starknet::interface]
@@ -30,7 +34,7 @@ trait IGroth16VerifierBN254<TContractState> {
 
 #[starknet::interface]
 trait IDataCommitment<TContractState> {
-    fn get_commitment(self: @TContractState, market_id: felt252) -> felt252;
+    fn get_commitment(self: @TContractState, market_id: felt252) -> u256;
 }
 
 #[starknet::contract]
@@ -60,6 +64,7 @@ mod ShieldedPool {
     const ACTION_REDEEM: felt252 = 3;
     const ACTION_DEPOSIT: felt252 = 4;
     const ACTION_WITHDRAW: felt252 = 5;
+    const STATE_RESOLVED: felt252 = 3;
 
     #[storage]
     struct Storage {
@@ -67,10 +72,10 @@ mod ShieldedPool {
         verifier: ContractAddress,
         collateral_token: ContractAddress,
         data_commitment: ContractAddress,
-        merkle_root: felt252,
+        merkle_root: u256,
         relayer_fee_bps: u16,
         locked: bool,
-        nullifiers: Map<felt252, u8>,
+        nullifiers: Map<u256, u8>,
         markets: Map<felt252, ContractAddress>,
     }
 
@@ -88,15 +93,15 @@ mod ShieldedPool {
     #[derive(Copy, Drop, starknet::Event)]
     struct RootUpdated {
         #[key]
-        old_root: felt252,
+        old_root: u256,
         #[key]
-        new_root: felt252,
+        new_root: u256,
     }
 
     #[derive(Copy, Drop, starknet::Event)]
     struct NullifierUsed {
         #[key]
-        nullifier: felt252,
+        nullifier: u256,
     }
 
     #[derive(Copy, Drop, starknet::Event)]
@@ -132,7 +137,7 @@ mod ShieldedPool {
         ref self: ContractState,
         collateral_token: ContractAddress,
         verifier: ContractAddress,
-        initial_root: felt252
+        initial_root: u256
     ) {
         let owner = deployer_address();
         self.owner.write(owner);
@@ -158,6 +163,12 @@ mod ShieldedPool {
         let owner = self.owner.read();
         assert(caller == owner, 'Not owner');
         self.markets.write(market_id, market);
+        // Approve market to pull collateral from the pool for private trades.
+        let token = self.collateral_token.read();
+        let erc20 = IERC20Dispatcher { contract_address: token };
+        let max = u256 { low: 340282366920938463463374607431768211455_u128, high: 0 };
+        let ok = erc20.approve(market, max);
+        assert(ok, 'Approve failed');
     }
 
     #[external(v0)]
@@ -177,22 +188,22 @@ mod ShieldedPool {
     }
 
     #[external(v0)]
-    fn get_root(self: @ContractState) -> felt252 {
+    fn get_root(self: @ContractState) -> u256 {
         self.merkle_root.read()
     }
 
     #[external(v0)]
-    fn is_nullifier_used(self: @ContractState, nullifier: felt252) -> bool {
+    fn is_nullifier_used(self: @ContractState, nullifier: u256) -> bool {
         self.nullifiers.read(nullifier) == 1
     }
 
     #[external(v0)]
     fn transact(
         ref self: ContractState,
-        old_root: felt252,
-        new_root: felt252,
-        nullifiers: Span<felt252>,
-        market_state_hash: felt252,
+        old_root: u256,
+        new_root: u256,
+        nullifiers: Span<u256>,
+        market_state_hash: u256,
         action: felt252,
         market_id: felt252,
         outcome: felt252,
@@ -223,12 +234,12 @@ mod ShieldedPool {
         //  amount_low, amount_high, limit_low, limit_high, relayer, fee_low, fee_high, recipient]
         // recipient should be zero for non-withdraw actions.
         assert(inputs.len() == 16, 'Invalid public inputs');
-        assert(*inputs.at(0) == old_root.into(), 'Input root mismatch');
-        assert(*inputs.at(1) == new_root.into(), 'Input root mismatch');
-        assert(*inputs.at(4) == market_state_hash.into(), 'State hash mismatch');
-        assert(*inputs.at(5) == action.into(), 'Action mismatch');
-        assert(*inputs.at(6) == market_id.into(), 'Market mismatch');
-        assert(*inputs.at(7) == outcome.into(), 'Outcome mismatch');
+        assert(*inputs.at(0) == old_root, 'Input root mismatch');
+        assert(*inputs.at(1) == new_root, 'Input root mismatch');
+        assert(*inputs.at(4) == market_state_hash, 'State hash mismatch');
+        assert(*inputs.at(5) == u256_from_felt252(action), 'Action mismatch');
+        assert(*inputs.at(6) == u256_from_felt252(market_id), 'Market mismatch');
+        assert(*inputs.at(7) == u256_from_felt252(outcome), 'Outcome mismatch');
         assert(*inputs.at(8) == amount.low.into(), 'Amount mismatch');
         assert(*inputs.at(9) == amount.high.into(), 'Amount mismatch');
         assert(*inputs.at(10) == limit.low.into(), 'Limit mismatch');
@@ -261,12 +272,12 @@ mod ShieldedPool {
         self.emit(RootUpdated { old_root, new_root });
 
         // Check committed market state hash if configured (trade actions only).
-        if action == ACTION_BUY || action == ACTION_SELL || action == ACTION_REDEEM {
+        if action == ACTION_BUY || action == ACTION_SELL {
             let commitment_addr = self.data_commitment.read();
             if !is_zero_address(commitment_addr) {
                 let commitment = IDataCommitmentDispatcher { contract_address: commitment_addr };
                 let expected = commitment.get_commitment(market_id);
-                assert(expected != 0, 'No commitment');
+                assert(!(expected.low == 0 && expected.high == 0), 'No commitment');
                 assert(expected == market_state_hash, 'State commitment mismatch');
             }
         }
@@ -297,11 +308,18 @@ mod ShieldedPool {
                 assert(!is_zero_address(market_addr), 'Market not set');
                 let market = IMarketDispatcher { contract_address: market_addr };
                 if action == ACTION_BUY {
-                    market.buy(outcome, amount, limit);
+                    let tokens_out = market.buy(outcome, amount, limit);
+                    assert(tokens_out == limit, 'Output mismatch');
                 } else if action == ACTION_SELL {
-                    market.sell(outcome, amount, limit);
+                    let collateral_out = market.sell(outcome, amount, limit);
+                    assert(collateral_out == limit, 'Output mismatch');
                 } else if action == ACTION_REDEEM {
-                    market.redeem();
+                    let status = market.get_status();
+                    assert(status == STATE_RESOLVED, 'Market not resolved');
+                    let winning = market.get_winning_outcome();
+                    assert(winning == outcome, 'Not winning outcome');
+                    let redeemed = market.redeem_amount(outcome, amount);
+                    assert(redeemed == amount, 'Redeem mismatch');
                 } else {
                     assert(false, 'Invalid action');
                 }

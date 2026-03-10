@@ -23,7 +23,7 @@ mod DataCommitment {
         owner: ContractAddress,
         signer_pubkey: felt252,
         updaters: Map<ContractAddress, u8>,
-        commitments: Map<felt252, felt252>,
+        commitments: Map<felt252, u256>,
         updated_at: Map<felt252, u256>,
         max_commitment_age: u256,
     }
@@ -62,7 +62,7 @@ mod DataCommitment {
     struct CommitmentSet {
         #[key]
         market_id: felt252,
-        data_hash: felt252,
+        data_hash: u256,
         updated_at: u256,
     }
 
@@ -70,7 +70,7 @@ mod DataCommitment {
     struct CommitmentSetSigned {
         #[key]
         market_id: felt252,
-        data_hash: felt252,
+        data_hash: u256,
         updated_at: u256,
     }
 
@@ -130,12 +130,12 @@ mod DataCommitment {
     }
 
     #[external(v0)]
-    fn set_commitment(ref self: ContractState, market_id: felt252, data_hash: felt252) {
+    fn set_commitment(ref self: ContractState, market_id: felt252, data_hash: u256) {
         let caller = starknet::get_caller_address();
         let owner = self.owner.read();
         let authorized = self.updaters.read(caller);
         assert(caller == owner || authorized == 1, 'Not authorized');
-        assert(data_hash != 0, 'Empty hash');
+        assert(!is_zero_u256(data_hash), 'Empty hash');
         self.commitments.write(market_id, data_hash);
         let now: u256 = starknet::get_block_timestamp().into();
         self.updated_at.write(market_id, now);
@@ -146,13 +146,13 @@ mod DataCommitment {
     fn set_commitment_signed(
         ref self: ContractState,
         market_id: felt252,
-        data_hash: felt252,
+        data_hash: u256,
         sig_r: felt252,
         sig_s: felt252
     ) {
         let pubkey = self.signer_pubkey.read();
         assert(pubkey != 0, 'Signer not set');
-        assert(data_hash != 0, 'Empty hash');
+        assert(!is_zero_u256(data_hash), 'Empty hash');
         let msg_hash = message_hash(market_id, data_hash);
         let ok = check_ecdsa_signature(msg_hash, pubkey, sig_r, sig_s);
         assert(ok, 'Invalid signature');
@@ -163,7 +163,7 @@ mod DataCommitment {
     }
 
     #[external(v0)]
-    fn get_commitment(self: @ContractState, market_id: felt252) -> felt252 {
+    fn get_commitment(self: @ContractState, market_id: felt252) -> u256 {
         self.commitments.read(market_id)
     }
 
@@ -178,7 +178,7 @@ mod DataCommitment {
     }
 
     #[external(v0)]
-    fn get_commitment_fresh(self: @ContractState, market_id: felt252) -> felt252 {
+    fn get_commitment_fresh(self: @ContractState, market_id: felt252) -> u256 {
         let value = self.commitments.read(market_id);
         let max_age = self.max_commitment_age.read();
         if max_age.low != 0 || max_age.high != 0 {
@@ -207,8 +207,9 @@ mod DataCommitment {
         self.emit(Upgraded { class_hash: new_class_hash });
     }
 
-    fn message_hash(market_id: felt252, data_hash: felt252) -> felt252 {
-        let acc = pedersen(market_id, data_hash);
+    fn message_hash(market_id: felt252, data_hash: u256) -> felt252 {
+        let acc = pedersen(market_id, data_hash.low.into());
+        let acc = pedersen(acc, data_hash.high.into());
         pedersen(acc, domain_separator())
     }
 
@@ -223,6 +224,10 @@ mod DataCommitment {
     fn u256_to_u128(x: u256) -> u128 {
         assert(x.high == 0, 'u256 overflow');
         x.low
+    }
+
+    fn is_zero_u256(value: u256) -> bool {
+        value.low == 0 && value.high == 0
     }
 
     fn deployer_address() -> ContractAddress {

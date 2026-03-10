@@ -1,0 +1,16 @@
+**/node_modules
+**/.venv
+**/venv
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/dist
+**/build
+**/target
+**/.DS_Store
+**/.env
+**/coverage

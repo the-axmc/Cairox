@@ -5,7 +5,7 @@ use starknet::ContractAddress;
 
 #[starknet::interface]
 trait IOptimisticOracle<TContractState> {
-    fn get_data_hash(self: @TContractState, market_id: felt252) -> felt252;
+    fn get_data_hash(self: @TContractState, market_id: felt252) -> u256;
 }
 
 #[starknet::interface]
@@ -85,7 +85,7 @@ mod ResolutionVerifier {
         #[key]
         market_id: felt252,
         outcome: felt252,
-        data_hash: felt252,
+        data_hash: u256,
         proof_hash: felt252,
         verified_at: u256,
     }
@@ -181,20 +181,25 @@ mod ResolutionVerifier {
 
             let expected_market: u256 = market_id.into();
             let expected_outcome: u256 = outcome.into();
-            let expected_data: u256 = expected_hash.into();
-
             assert(*proof_inputs.at(0) == expected_market, 'Market ID mismatch');
             assert(*proof_inputs.at(1) == expected_outcome, 'Outcome mismatch');
-            assert(*proof_inputs.at(2) == expected_data, 'Data hash mismatch');
+            assert(*proof_inputs.at(2) == expected_hash, 'Data hash mismatch');
         } else {
             let signer_pubkey = self.signer_pubkey.read();
             assert(signer_pubkey != 0, 'Signer not set');
-            assert(proof.len() >= 3, 'Invalid proof');
-            let provided_hash = *proof.at(0);
+            assert(proof.len() >= 4, 'Invalid proof');
+            let provided_low = *proof.at(0);
+            let provided_high = *proof.at(1);
+            let low: u128 = provided_low.try_into().unwrap();
+            let high: u128 = provided_high.try_into().unwrap();
+            let provided_hash = u256 { low, high };
             assert(provided_hash == expected_hash, 'Data hash mismatch');
-            let sig_r = *proof.at(1);
-            let sig_s = *proof.at(2);
-            assert(is_valid_signature(market_id, outcome, provided_hash, signer_pubkey, sig_r, sig_s), 'Invalid signature');
+            let sig_r = *proof.at(2);
+            let sig_s = *proof.at(3);
+            assert(
+                is_valid_signature(market_id, outcome, provided_hash, signer_pubkey, sig_r, sig_s),
+                'Invalid signature'
+            );
         }
 
         let hash = hash_proof(market_id, outcome, proof);
@@ -205,10 +210,10 @@ mod ResolutionVerifier {
         self.emit(ProofVerified {
             market_id,
             outcome,
-            data_hash: expected_hash,
-            proof_hash: hash,
-            verified_at: timestamp
-        });
+        data_hash: expected_hash,
+        proof_hash: hash,
+        verified_at: timestamp
+    });
         true
     }
 
@@ -258,7 +263,7 @@ mod ResolutionVerifier {
     fn is_valid_signature(
         market_id: felt252,
         outcome: felt252,
-        data_hash: felt252,
+        data_hash: u256,
         pubkey: felt252,
         sig_r: felt252,
         sig_s: felt252
@@ -267,9 +272,10 @@ mod ResolutionVerifier {
         check_ecdsa_signature(msg_hash, pubkey, sig_r, sig_s)
     }
 
-    fn message_hash(market_id: felt252, outcome: felt252, data_hash: felt252) -> felt252 {
+    fn message_hash(market_id: felt252, outcome: felt252, data_hash: u256) -> felt252 {
         let acc = pedersen(market_id, outcome);
-        let acc = pedersen(acc, data_hash);
+        let acc = pedersen(acc, data_hash.low.into());
+        let acc = pedersen(acc, data_hash.high.into());
         pedersen(acc, domain_separator())
     }
 

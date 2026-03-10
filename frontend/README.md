@@ -4,6 +4,11 @@ Landing page for Cairox (pixel‑Egypt aesthetic).
 
 ## Run
 ```bash
+# start middleware first (simple mode by default)
+cd ../middleware
+npm run dev
+
+# then run frontend
 cd frontend
 npm install
 npm run dev

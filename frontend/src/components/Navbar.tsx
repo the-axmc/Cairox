@@ -9,8 +9,8 @@ export default function Navbar() {
         </div>
       </div>
       <nav className="nav__links">
-        <a href="#markets">Markets</a>
-        <a href="#activate">Activate Account</a>
+        <a href="/home">Home</a>
+        <a href="/markets">Markets</a>
         <a href="/docs">Docs</a>
       </nav>
     </header>
