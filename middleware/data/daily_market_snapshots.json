@@ -95,6 +95,102 @@
       "source_endpoint": "https://api.growthepie.com/v1/export/stables_mcap.json",
       "source_date": "2026-03-08",
       "captured_at": "2026-03-09T23:08:45.517Z"
+    },
+    "starknet-daa-daily:2026-03-11": {
+      "value": 51002,
+      "source_endpoint": "https://api.growthepie.com/v1/export/daa.json",
+      "source_date": "2026-03-09",
+      "captured_at": "2026-03-10T23:00:17.514Z"
+    },
+    "starknet-txcount-daily:2026-03-11": {
+      "value": 229624,
+      "source_endpoint": "https://api.growthepie.com/v1/export/txcount.json",
+      "source_date": "2026-03-09",
+      "captured_at": "2026-03-10T23:00:17.598Z"
+    },
+    "starknet-market-cap-daily:2026-03-11": {
+      "value": 106325.78892106152,
+      "source_endpoint": "https://api.growthepie.com/v1/export/market_cap.json",
+      "source_date": "2026-03-10",
+      "captured_at": "2026-03-10T23:00:17.944Z"
+    },
+    "starknet-l1-rent-daily:2026-03-11": {
+      "value": 0.0374391906776915,
+      "source_endpoint": "https://api.growthepie.com/v1/export/rent_paid.json",
+      "source_date": "2026-03-09",
+      "captured_at": "2026-03-10T23:00:17.989Z"
+    },
+    "starknet-onchain-profit-daily:2026-03-11": {
+      "value": 2.988142524918838,
+      "source_endpoint": "https://api.growthepie.com/v1/export/profit.json",
+      "source_date": "2026-03-09",
+      "captured_at": "2026-03-10T23:00:18.011Z"
+    },
+    "starknet-fdv-daily:2026-03-11": {
+      "value": 195427.0072709079,
+      "source_endpoint": "https://api.growthepie.com/v1/export/fdv.json",
+      "source_date": "2026-03-10",
+      "captured_at": "2026-03-10T23:00:18.043Z"
+    },
+    "starknet-tvl-daily:2026-03-11": {
+      "value": 276408.89982227335,
+      "source_endpoint": "https://api.growthepie.com/v1/export/tvl.json",
+      "source_date": "2026-03-09",
+      "captured_at": "2026-03-10T23:00:18.073Z"
+    },
+    "starknet-stables-mcap-daily:2026-03-11": {
+      "value": 134620.7676298686,
+      "source_endpoint": "https://api.growthepie.com/v1/export/stables_mcap.json",
+      "source_date": "2026-03-09",
+      "captured_at": "2026-03-10T23:00:18.114Z"
+    },
+    "starknet-daa-daily:2026-03-12": {
+      "value": 51069,
+      "source_endpoint": "https://api.growthepie.com/v1/export/daa.json",
+      "source_date": "2026-03-10",
+      "captured_at": "2026-03-11T23:10:19.615Z"
+    },
+    "starknet-txcount-daily:2026-03-12": {
+      "value": 217071,
+      "source_endpoint": "https://api.growthepie.com/v1/export/txcount.json",
+      "source_date": "2026-03-10",
+      "captured_at": "2026-03-11T23:10:19.654Z"
+    },
+    "starknet-l1-rent-daily:2026-03-12": {
+      "value": 59.85794452816739,
+      "source_endpoint": "https://api.growthepie.com/v1/export/rent_paid.json",
+      "source_date": "2026-03-10",
+      "captured_at": "2026-03-11T23:10:19.992Z"
+    },
+    "starknet-onchain-profit-daily:2026-03-12": {
+      "value": 4549.272682784935,
+      "source_endpoint": "https://api.growthepie.com/v1/export/profit.json",
+      "source_date": "2026-03-10",
+      "captured_at": "2026-03-11T23:10:20.018Z"
+    },
+    "starknet-stables-mcap-daily:2026-03-12": {
+      "value": 131577.31669082318,
+      "source_endpoint": "https://api.growthepie.com/v1/export/stables_mcap.json",
+      "source_date": "2026-03-10",
+      "captured_at": "2026-03-11T23:10:20.057Z"
+    },
+    "starknet-fdv-daily:2026-03-12": {
+      "value": 399426755.465423,
+      "source_endpoint": "https://api.growthepie.com/v1/export/fdv.json",
+      "source_date": "2026-03-11",
+      "captured_at": "2026-03-11T23:10:20.085Z"
+    },
+    "starknet-tvl-daily:2026-03-12": {
+      "value": 270927.9816317807,
+      "source_endpoint": "https://api.growthepie.com/v1/export/tvl.json",
+      "source_date": "2026-03-10",
+      "captured_at": "2026-03-11T23:10:20.117Z"
+    },
+    "starknet-market-cap-daily:2026-03-12": {
+      "value": 106709.5355553003,
+      "source_endpoint": "https://api.growthepie.com/v1/export/market_cap.json",
+      "source_date": "2026-03-11",
+      "captured_at": "2026-03-11T23:10:20.145Z"
     }
   }
 }

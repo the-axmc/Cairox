@@ -17,6 +17,18 @@ type Obstacle = {
   h: number;
 };
 
+type SpriteKey = "player" | "croc" | "obstacle" | "pyramid";
+
+type SpriteMetrics = {
+  aspect: number;
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+};
+
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+
 export default function NileRunner({ open, onClose }: NileRunnerProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rafRef = useRef<number | null>(null);
@@ -30,6 +42,12 @@ export default function NileRunner({ open, onClose }: NileRunnerProps) {
     croc: null,
     obstacle: null,
     pyramid: null
+  });
+  const spriteMetricsRef = useRef<Record<SpriteKey, SpriteMetrics>>({
+    player: { aspect: 1.5, minX: 0, maxX: 1, minY: 0, maxY: 1 },
+    croc: { aspect: 1, minX: 0, maxX: 1, minY: 0, maxY: 1 },
+    obstacle: { aspect: 1.5, minX: 0, maxX: 1, minY: 0, maxY: 1 },
+    pyramid: { aspect: 1, minX: 0, maxX: 1, minY: 0, maxY: 1 }
   });
   const stateRef = useRef({
     width: 900,
@@ -47,7 +65,7 @@ export default function NileRunner({ open, onClose }: NileRunnerProps) {
     doubleJumpVelocity: -780,
     speed: 300,
     speedBoost: 12,
-    crocActive: false,
+    crocMode: "idle",
     crocWave: 0,
     crocDistance: 440,
     crocSpeed: 0,
@@ -56,6 +74,10 @@ export default function NileRunner({ open, onClose }: NileRunnerProps) {
     crocWidth: 74,
     crocHeight: 38,
     crocRetreatBoost: 260,
+    obstacleMinH: 52,
+    obstacleMaxH: 80,
+    obstacleMinW: 48,
+    obstacleMaxW: 82,
     spawnTimer: 0,
     obstacles: [] as Obstacle[],
     score: 0,
@@ -73,7 +95,7 @@ export default function NileRunner({ open, onClose }: NileRunnerProps) {
     state.playerVY = 0;
     state.jumpCount = 0;
     state.speed = 300;
-    state.crocActive = false;
+    state.crocMode = "idle";
     state.crocWave = 0;
     state.crocDistance = 440;
     state.crocSpeed = 0;
@@ -90,6 +112,94 @@ export default function NileRunner({ open, onClose }: NileRunnerProps) {
   const setModeSafe = (next: GameMode) => {
     modeRef.current = next;
     setMode(next);
+  };
+
+  const buildSpriteMetrics = (image: HTMLImageElement | null, fallbackAspect: number): SpriteMetrics => {
+    if (!image) {
+      return { aspect: fallbackAspect, minX: 0, maxX: 1, minY: 0, maxY: 1 };
+    }
+
+    const width = image.naturalWidth || image.width;
+    const height = image.naturalHeight || image.height;
+    if (!width || !height) {
+      return { aspect: fallbackAspect, minX: 0, maxX: 1, minY: 0, maxY: 1 };
+    }
+
+    const scanCanvas = document.createElement("canvas");
+    scanCanvas.width = width;
+    scanCanvas.height = height;
+    const scanCtx = scanCanvas.getContext("2d", { willReadFrequently: true });
+    if (!scanCtx) {
+      return { aspect: width / height, minX: 0, maxX: 1, minY: 0, maxY: 1 };
+    }
+
+    scanCtx.drawImage(image, 0, 0, width, height);
+    const imageData = scanCtx.getImageData(0, 0, width, height).data;
+    let minX = width;
+    let minY = height;
+    let maxX = -1;
+    let maxY = -1;
+    const alphaThreshold = 18;
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const alpha = imageData[(y * width + x) * 4 + 3];
+        if (alpha < alphaThreshold) continue;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+
+    if (maxX < minX || maxY < minY) {
+      return { aspect: width / height, minX: 0, maxX: 1, minY: 0, maxY: 1 };
+    }
+
+    return {
+      aspect: width / height,
+      minX: minX / width,
+      maxX: (maxX + 1) / width,
+      minY: minY / height,
+      maxY: (maxY + 1) / height
+    };
+  };
+
+  const getAnchoredTop = (key: SpriteKey, baselineY: number, spriteHeight: number) => {
+    const metrics = spriteMetricsRef.current[key];
+    return baselineY - spriteHeight + (1 - metrics.maxY) * spriteHeight;
+  };
+
+  const getSpriteContentBox = (
+    key: SpriteKey,
+    x: number,
+    y: number,
+    width: number,
+    height: number
+  ) => {
+    const metrics = spriteMetricsRef.current[key];
+    return {
+      x: x + metrics.minX * width,
+      y: y + metrics.minY * height,
+      w: Math.max(1, (metrics.maxX - metrics.minX) * width),
+      h: Math.max(1, (metrics.maxY - metrics.minY) * height)
+    };
+  };
+
+  const syncSpriteSizing = () => {
+    const state = stateRef.current;
+    const metrics = spriteMetricsRef.current;
+    const playerAspect = metrics.player.aspect || 1;
+    const crocAspect = metrics.croc.aspect || 1;
+    const obstacleAspect = metrics.obstacle.aspect || 1;
+
+    state.playerHeight = Math.round(clamp(state.height * 0.3, 82, 122));
+    state.playerWidth = Math.round(state.playerHeight * playerAspect);
+    state.crocHeight = Math.round(clamp(state.height * 0.22, 58, 90));
+    state.crocWidth = Math.round(state.crocHeight * crocAspect);
+    state.obstacleMinH = Math.round(clamp(state.height * 0.19, 52, 80));
+    state.obstacleMaxH = Math.round(clamp(state.height * 0.26, 70, 104));
+    state.obstacleMinW = Math.round(state.obstacleMinH * obstacleAspect);
+    state.obstacleMaxW = Math.round(state.obstacleMaxH * obstacleAspect);
   };
 
   const resizeCanvas = () => {
@@ -109,6 +219,7 @@ export default function NileRunner({ open, onClose }: NileRunnerProps) {
     state.width = width;
     state.height = height;
     state.groundY = height - 60;
+    syncSpriteSizing();
     state.playerY = Math.min(state.playerY || state.groundY, state.groundY);
   };
 
@@ -124,7 +235,7 @@ export default function NileRunner({ open, onClose }: NileRunnerProps) {
     state.jumpCount += 1;
 
     // Successful double jump can push an active crocodile chase further back.
-    if (isDoubleJump && state.crocActive && state.crocDistance < 200) {
+    if (isDoubleJump && state.crocMode === "chase" && state.crocDistance < 200) {
       state.crocDistance += state.crocRetreatBoost;
     }
   };
@@ -161,8 +272,8 @@ export default function NileRunner({ open, onClose }: NileRunnerProps) {
 
       state.spawnTimer -= dt;
       if (state.spawnTimer <= 0) {
-        const w = 30 + Math.random() * 22;
-        const h = 30 + Math.random() * 22;
+        const h = state.obstacleMinH + Math.random() * (state.obstacleMaxH - state.obstacleMinH);
+        const w = state.obstacleMinW + Math.random() * (state.obstacleMaxW - state.obstacleMinW);
         state.obstacles.push({
           x: state.width + 40,
           w,
@@ -176,18 +287,22 @@ export default function NileRunner({ open, onClose }: NileRunnerProps) {
       });
       state.obstacles = state.obstacles.filter((obs) => obs.x + obs.w > -20);
 
+      const playerTop = getAnchoredTop("player", state.playerY, state.playerHeight);
+      const playerContentBox = getSpriteContentBox("player", state.playerX, playerTop, state.playerWidth, state.playerHeight);
       const playerBox = {
-        x: state.playerX + state.playerWidth * 0.18,
-        y: state.playerY - state.playerHeight,
-        w: state.playerWidth * 0.62,
-        h: state.playerHeight
+        x: playerContentBox.x + playerContentBox.w * 0.12,
+        y: playerContentBox.y + playerContentBox.h * 0.06,
+        w: playerContentBox.w * 0.72,
+        h: playerContentBox.h * 0.9
       };
       for (const obs of state.obstacles) {
+        const obstacleTop = getAnchoredTop("obstacle", state.groundY, obs.h);
+        const obstacleContentBox = getSpriteContentBox("obstacle", obs.x, obstacleTop, obs.w, obs.h);
         const obstacleBox = {
-          x: obs.x + obs.w * 0.1,
-          y: state.groundY - obs.h,
-          w: obs.w * 0.8,
-          h: obs.h
+          x: obstacleContentBox.x + obstacleContentBox.w * 0.12,
+          y: obstacleContentBox.y + obstacleContentBox.h * 0.08,
+          w: obstacleContentBox.w * 0.76,
+          h: obstacleContentBox.h * 0.9
         };
         const hit =
           playerBox.x < obstacleBox.x + obstacleBox.w &&
@@ -200,7 +315,7 @@ export default function NileRunner({ open, onClose }: NileRunnerProps) {
         }
       }
 
-      if (state.crocActive) {
+      if (state.crocMode === "chase") {
         const maxChaseSpeed = Math.max(520, state.speed * 1.45);
         state.crocSpeed = Math.min(maxChaseSpeed, state.crocSpeed + 340 * dt);
         state.crocDistance -= state.crocSpeed * dt;
@@ -208,22 +323,27 @@ export default function NileRunner({ open, onClose }: NileRunnerProps) {
 
         const playerAirborne = state.playerY < state.groundY - state.playerHeight * 0.35;
         if (state.crocDistance <= 20 && playerAirborne) {
-          state.crocActive = false;
-          state.crocSpawnTimer = 3 + Math.random() * 2.8;
-          state.crocDistance = 480;
-          state.crocSpeed = 0;
+          state.crocMode = "retreat";
+          state.crocSpeed = Math.max(state.crocSpeed, state.speed * 1.2);
         } else if (state.crocDistance <= 0) {
           endGame();
         } else if (state.crocChaseWindow <= 0) {
-          state.crocActive = false;
-          state.crocSpawnTimer = 2.6 + Math.random() * 2.6;
-          state.crocDistance = 520;
+          state.crocMode = "retreat";
+          state.crocSpeed = Math.max(state.crocSpeed, state.speed);
+        }
+      } else if (state.crocMode === "retreat") {
+        state.crocSpeed = Math.min(760, state.crocSpeed + 260 * dt);
+        state.crocDistance += state.crocSpeed * dt;
+        if (state.crocDistance > state.width + state.crocWidth + 180) {
+          state.crocMode = "idle";
+          state.crocSpawnTimer = 2.8 + Math.random() * 2.6;
+          state.crocDistance = state.width + 200;
           state.crocSpeed = 0;
         }
       } else {
         state.crocSpawnTimer -= dt;
         if (state.crocSpawnTimer <= 0) {
-          state.crocActive = true;
+          state.crocMode = "chase";
           state.crocWave += 1;
           state.crocDistance = 360 + Math.random() * 170;
           const waveBoost = Math.min(180, state.crocWave * 22);
@@ -271,65 +391,62 @@ export default function NileRunner({ open, onClose }: NileRunnerProps) {
     ctx.fillRect(0, state.groundY, state.width, state.height - state.groundY);
 
     const sprites = spritesRef.current;
-    if (sprites.pyramid) {
-      ctx.globalAlpha = 0.18;
-      ctx.drawImage(
-        sprites.pyramid,
-        state.width - 300,
-        state.groundY - 190,
-        250,
-        170
-      );
-      ctx.globalAlpha = 1;
-    }
-
-    if (sprites.player) {
-      ctx.drawImage(
-        sprites.player,
-        state.playerX,
-        state.playerY - state.playerHeight,
-        state.playerWidth,
-        state.playerHeight
-      );
-    } else {
-      ctx.fillStyle = "#f2d3b3";
-      ctx.fillRect(state.playerX, state.playerY - state.playerHeight, state.playerWidth, state.playerHeight);
-      ctx.fillStyle = "#c49b6f";
-      ctx.fillRect(state.playerX + 10, state.playerY - state.playerHeight - 16, 44, 16);
-    }
-
-    const crocX = state.playerX - state.crocDistance;
-    if (state.crocActive) {
-      if (sprites.croc) {
-        ctx.drawImage(
-          sprites.croc,
-          crocX,
-          state.groundY - state.crocHeight,
-          state.crocWidth,
-          state.crocHeight
-        );
-      } else {
-        ctx.fillStyle = "#2c5d3a";
-        ctx.fillRect(crocX, state.groundY - state.crocHeight, state.crocWidth, state.crocHeight);
-        ctx.fillStyle = "#1d3b25";
-        ctx.fillRect(crocX + state.crocWidth - 18, state.groundY - state.crocHeight + 8, 16, 10);
+    const drawSprite = (
+      key: SpriteKey,
+      x: number,
+      y: number,
+      width: number,
+      height: number,
+      alpha = 1
+    ) => {
+      const image = sprites[key];
+      if (!image) return false;
+      ctx.save();
+      if (alpha < 1) {
+        ctx.globalAlpha = alpha;
       }
-    }
+      ctx.drawImage(image, x, y, width, height);
+      ctx.restore();
+      return true;
+    };
+
+    drawSprite("pyramid", state.width - 300, state.groundY - 190, 250, 170, 0.18);
 
     state.obstacles.forEach((obs) => {
-      if (sprites.obstacle) {
-        ctx.drawImage(sprites.obstacle, obs.x, state.groundY - obs.h, obs.w, obs.h);
-      } else {
+      const obstacleTop = getAnchoredTop("obstacle", state.groundY, obs.h);
+      if (!drawSprite("obstacle", obs.x, obstacleTop, obs.w, obs.h)) {
         ctx.fillStyle = "#d9b16f";
-        ctx.fillRect(obs.x, state.groundY - obs.h, obs.w, obs.h);
+        ctx.fillRect(obs.x, obstacleTop, obs.w, obs.h);
       }
     });
+
+    const crocX = state.playerX - state.crocDistance;
+    const crocTop = getAnchoredTop("croc", state.groundY, state.crocHeight);
+    const crocVisible = state.crocMode === "chase" || state.crocMode === "retreat";
+    if (crocVisible) {
+      if (!drawSprite("croc", crocX, crocTop, state.crocWidth, state.crocHeight)) {
+        ctx.fillStyle = "#2c5d3a";
+        ctx.fillRect(crocX, crocTop, state.crocWidth, state.crocHeight);
+        ctx.fillStyle = "#1d3b25";
+        ctx.fillRect(crocX + state.crocWidth - 18, crocTop + 8, 16, 10);
+      }
+    }
+
+    const playerTop = getAnchoredTop("player", state.playerY, state.playerHeight);
+    if (!drawSprite("player", state.playerX, playerTop, state.playerWidth, state.playerHeight)) {
+      ctx.fillStyle = "#f2d3b3";
+      ctx.fillRect(state.playerX, playerTop, state.playerWidth, state.playerHeight);
+      ctx.fillStyle = "#c49b6f";
+      ctx.fillRect(state.playerX + 10, playerTop - 16, 44, 16);
+    }
 
     ctx.fillStyle = "#f8e9cd";
     ctx.font = "16px 'Space Mono', monospace";
     ctx.fillText(`Survival: ${displayScore.toFixed(1)}s`, 20, 30);
-    if (state.crocActive) {
+    if (state.crocMode === "chase") {
       ctx.fillText(`Crocodile chase #${state.crocWave}`, 20, 50);
+    } else if (state.crocMode === "retreat") {
+      ctx.fillText("Crocodile retreating...", 20, 50);
     } else {
       ctx.fillText(`Next crocodile: ${Math.max(0, state.crocSpawnTimer).toFixed(1)}s`, 20, 50);
     }
@@ -378,6 +495,13 @@ export default function NileRunner({ open, onClose }: NileRunnerProps) {
     ]).then(([player, croc, obstacle, pyramid]) => {
       if (!mounted) return;
       spritesRef.current = { player, croc, obstacle, pyramid };
+      spriteMetricsRef.current = {
+        player: buildSpriteMetrics(player, 1.5),
+        croc: buildSpriteMetrics(croc, 1),
+        obstacle: buildSpriteMetrics(obstacle, 1.5),
+        pyramid: buildSpriteMetrics(pyramid, 1)
+      };
+      syncSpriteSizing();
     });
 
     return () => {
